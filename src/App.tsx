@@ -1,26 +1,46 @@
 import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import Header from './components/Header';
+import LoginPage from './pages/LoginPage';
+import ProfilePage from './pages/ProfilePage';
+import ProtectedRoute from './components/ProtectedRoute';
+import './index.css';
+import {CompaniesProvider} from "./context/CompaniesContext";
 
-function App() {
+const App: React.FC = () => {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+      <AuthProvider>
+        <CompaniesProvider>
+        <Router>
+          <div className="min-h-screen flex flex-col bg-cover bg-center"
+               style={{ backgroundImage: `url(${require('./assets/main_screen_picture.jpeg')})` }}>
+            <Header />
+
+            <main className="flex-grow py-8">
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/profile" element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                } />
+                <Route path="*" element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </main>
+
+            <footer className="bg-coffee-dark text-white text-center p-4">
+              © {new Date().getFullYear()} CoffeeStaff. Все права защищены.
+            </footer>
+          </div>
+        </Router>
+      </CompaniesProvider>
+      </AuthProvider>
   );
-}
+};
 
 export default App;

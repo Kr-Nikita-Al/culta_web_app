@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: cafe-staff-frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      - REACT_APP_API_BASE_URL=http://193.106.174.216:8000
+      - REACT_APP_ENV=production
+    restart: unless-stopped
