@@ -4,15 +4,8 @@ export interface LoginData {
 }
 
 export interface UserRole {
-    id: number;
-    name: string;
-    description: string;
-}
-
-export interface AuthContextType {
-    token: string | null;
-    login: (token: string) => void;
-    logout: () => void;
+    company_id: string;
+    role: string;
 }
 
 export interface UserRole {
@@ -42,4 +35,49 @@ export interface UserRole {
 // Для роли с дополнительной информацией о компании
 export interface RoleWithCompany extends UserRole {
     company_name?: string;
+}
+
+export interface OAuthProvider {
+    id: string;
+    name: string;
+    icon: string;
+    authUrl: string;
+}
+
+export interface OAuthResponse {
+    token: string;
+    user: any;
+}
+
+export interface UserInfo {
+    user_id: string;
+    name: string;
+    surname: string;
+    phone: string;
+    email: string;
+    is_active: boolean;
+    creator_id: string;
+    updater_id: string;
+    time_created: string;
+    time_updated: string;
+}
+
+export interface LoginData {
+    username: string;
+    password: string;
+}
+
+
+export interface AuthContextType {
+    token: string | null;
+    userId: string | null;
+    userInfo: UserInfo | null;
+    login: (token: string, userId: string) => void; // Изменено на 2 параметра
+    logout: () => void;
+    updateUserInfo: (userInfo: UserInfo) => void;
+}
+
+export interface LoginResponse {
+    token: string;
+    userId: string;
 }

@@ -7,6 +7,7 @@ import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
 import './index.css';
 import {CompaniesProvider} from "./context/CompaniesContext";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 
 const App: React.FC = () => {
   return (
@@ -20,6 +21,7 @@ const App: React.FC = () => {
             <main className="flex-grow py-8">
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/auth/:provider/callback" element={<OAuthCallbackPage/>} />
                 <Route path="/profile" element={
                   <ProtectedRoute>
                     <ProfilePage />
@@ -31,6 +33,7 @@ const App: React.FC = () => {
                   </ProtectedRoute>
                 } />
               </Routes>
+
             </main>
 
             <footer className="bg-coffee-dark text-white text-center p-4">

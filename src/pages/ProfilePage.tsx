@@ -1,11 +1,10 @@
-import React, {useState, useEffect, useRef, useCallback} from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useApi } from '../hooks/useApi';
 import { getUserRoles } from '../services/authService';
-import { getAllCompanies } from '../services/companyService';
+import { getUserInfo } from '../services/userService';
 import { Company } from '../types/authTypes';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import config from "../config";
 
 interface EnhancedRole {
     role: string;
@@ -16,22 +15,24 @@ interface EnhancedRole {
 
 const ProfilePage: React.FC = () => {
     const [roles, setRoles] = useState<EnhancedRole[]>([]);
-    const [, setAllCompanies] = useState<Company[]>([]);
     const [companiesMap, setCompaniesMap] = useState<Map<string, string>>(new Map());
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+    const [isLoadingCompanies] = useState(false);
+    const [isLoadingUserInfo, setIsLoadingUserInfo] = useState(false);
     const [showRoles, setShowRoles] = useState(false);
-
-    const { token } = useAuth();
+    const { token, userId, userInfo, updateUserInfo } = useAuth();
     const api = useApi();
-    const hasFetched = useRef(false);
 
     // Мемоизированные функции
     const getRoleName = useCallback((role: string): string => {
-        // Приводим тип объекта маппинга к Record<string, string>
-        const mapping = config.rolesMapping as Record<string, string>;
-        return mapping[role] || role.replace('PORTAL_ROLE_', '').replace(/_/g, ' ');
+        const roleNameMapping: Record<string, string> = {
+            'PORTAL_ROLE_SUPER_ADMIN': 'Супер-админ',
+            'PORTAL_ROLE_ADMIN': 'Администратор',
+            'PORTAL_ROLE_MODERATOR': 'Модератор',
+            'PORTAL_ROLE_USER': 'Пользователь'
+        };
+        return roleNameMapping[role] || role.replace('PORTAL_ROLE_', '').replace(/_/g, ' ');
     }, []);
 
     const updateCompaniesMap = useCallback((companies: Company[]) => {
@@ -48,39 +49,76 @@ const ProfilePage: React.FC = () => {
 
     // Загрузка компаний
     useEffect(() => {
-        if (!token || hasFetched.current) return;
+        if (!token || !userId || userInfo) return;
 
-        const loadCompanies = async () => {
-            const cachedCompanies = localStorage.getItem(config.companiesCacheKey);
-            if (cachedCompanies) {
-                const companies = JSON.parse(cachedCompanies);
-                setAllCompanies(companies);
-                updateCompaniesMap(companies);
-                return;
-            }
-
-            hasFetched.current = true;
-            setIsLoadingCompanies(true);
-
+        const loadUserInfo = async () => {
+            setIsLoadingUserInfo(true);
             try {
-                const response = await api.callApi(() => getAllCompanies(token));
-                if (response && response.companies) {
-                    setAllCompanies(response.companies);
-                    updateCompaniesMap(response.companies);
-                    localStorage.setItem(config.companiesCacheKey, JSON.stringify(response.companies));
-                }
+                const userData = await api.callApi(() => {
+                    if (!token || !userId) throw new Error('Отсутствует токен или ID пользователя');
+                    return getUserInfo(token, userId);
+                });
             } catch (err: any) {
-                console.error('Ошибка загрузки компаний:', err);
-                setError('Не удалось загрузить список компаний');
+                console.error('Ошибка загрузки информации о пользователе:', err);
+                setError('Не удалось загрузить информацию о пользователе');
             } finally {
-                setIsLoadingCompanies(false);
+                setIsLoadingUserInfo(false);
             }
         };
 
-        loadCompanies();
-    }, [token, api.callApi, updateCompaniesMap]);
+        loadUserInfo();
+    }, [token, userId, userInfo, updateUserInfo, api.callApi]);
 
-    // Обработчик переключения ролей
+    // Загрузка информации о пользователе
+    // Добавьте useRef для отслеживания выполнения запроса
+    const hasFetchedUserInfo = useRef(false);
+
+// Обновите useEffect для загрузки информации о пользователе
+    useEffect(() => {
+        // Если уже загружали или нет необходимых данных, выходим
+        if (hasFetchedUserInfo.current || !token || !userId || userInfo) return;
+
+        const loadUserInfo = async () => {
+            hasFetchedUserInfo.current = true;
+            setIsLoadingUserInfo(true);
+
+            try {
+                const userData = await api.callApi(() => {
+                    if (!token || !userId) {
+                        throw new Error('Отсутствует токен или ID пользователя');
+                    }
+                    return getUserInfo(token, userId);
+                });
+
+                if (userData) {
+                    updateUserInfo(userData);
+                }
+            } catch (err: any) {
+                console.error('Ошибка загрузки информации о пользователе:', err);
+                setError('Не удалось загрузить информацию о пользователе');
+            } finally {
+                setIsLoadingUserInfo(false);
+            }
+        };
+
+        loadUserInfo();
+    }, [token, userId, userInfo, updateUserInfo, api.callApi]);
+
+    // Добавьте очистку при размонтировании компонента
+    useEffect(() => {
+        return () => {
+            hasFetchedUserInfo.current = false;
+        };
+    }, []);
+
+    // Фильтрация ролей - убираем USER если есть другие роли
+    const filteredRoles = useMemo(() => {
+        const hasNonUserRoles = roles.some(role => role.role !== 'PORTAL_ROLE_USER');
+        return hasNonUserRoles
+            ? roles.filter(role => role.role !== 'PORTAL_ROLE_USER')
+            : roles;
+    }, [roles]);
+
     const handleToggleRoles = useCallback(async () => {
         if (showRoles) {
             setShowRoles(false);
@@ -123,16 +161,74 @@ const ProfilePage: React.FC = () => {
         }
     }, [showRoles, token, api.callApi, getRoleName, getCompanyName]);
 
-    // Функция для получения ширины кнопки в пикселях
-    const getButtonWidth = () => {
-        // Ширина самой широкой версии кнопки
-        return "220px"; // Эмпирически подобранное значение
+    // Форматирование даты
+    const formatDate = (dateString: string) => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('ru-RU', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     };
 
     return (
         <div className="max-w-4xl mx-auto p-6">
             <h1 className="text-3xl font-bold text-coffee-dark mb-8">Ваш профиль</h1>
 
+            {/* Информация о пользователе */}
+            {userInfo && (
+                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <h2 className="text-xl font-semibold text-amber-800 mb-4">Личная информация</h2>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-gray-600 text-sm">Имя</p>
+                            <p className="font-medium text-coffee-dark">{userInfo.name}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Фамилия</p>
+                            <p className="font-medium text-coffee-dark">{userInfo.surname}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Телефон</p>
+                            <p className="font-medium text-coffee-dark">{userInfo.phone}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Email</p>
+                            <p className="font-medium text-coffee-dark">{userInfo.email}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Статус</p>
+                            <p className="font-medium text-coffee-dark">
+                                {userInfo.is_active ? 'Активен' : 'Неактивен'}
+                            </p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Дата создания</p>
+                            <p className="font-medium text-coffee-dark">{formatDate(userInfo.time_created)}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">Последнее обновление</p>
+                            <p className="font-medium text-coffee-dark">{formatDate(userInfo.time_updated)}</p>
+                        </div>
+
+                        <div>
+                            <p className="text-gray-600 text-sm">ID пользователя</p>
+                            <p className="font-medium text-coffee-dark text-xs">{userInfo.user_id}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Блок управления ролями */}
             <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
                 <h2 className="text-xl font-semibold text-amber-800 mb-4">Управление ролями</h2>
 
@@ -144,16 +240,16 @@ const ProfilePage: React.FC = () => {
                         {isLoadingCompanies && (
                             <p className="text-sm text-amber-600 mt-1">Загрузка списка компаний...</p>
                         )}
+                        {isLoadingUserInfo && (
+                            <p className="text-sm text-amber-600 mt-1">Загрузка информации о пользователе...</p>
+                        )}
                     </div>
 
                     <button
                         onClick={handleToggleRoles}
-                        disabled={isLoading || isLoadingCompanies}
+                        disabled={isLoading || isLoadingCompanies || isLoadingUserInfo}
                         className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-6 rounded-lg transition disabled:opacity-50 flex items-center justify-center"
-                        style={{
-                            width: getButtonWidth(),
-                            minWidth: getButtonWidth()
-                        }}
+                        style={{ width: '220px', minWidth: '220px' }}
                     >
                         {isLoading ? (
                             <>
@@ -178,8 +274,9 @@ const ProfilePage: React.FC = () => {
                 )}
             </div>
 
+            {/* Отображение ролей */}
             <AnimatePresence>
-                {showRoles && roles.length > 0 && (
+                {showRoles && filteredRoles.length > 0 && (
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -191,7 +288,7 @@ const ProfilePage: React.FC = () => {
 
                         <ul className="space-y-4">
                             <AnimatePresence>
-                                {roles.map((role, index) => (
+                                {filteredRoles.map((role, index) => (
                                     <motion.li
                                         key={`${role.role}-${index}`}
                                         initial={{ opacity: 0, scale: 0.95 }}
@@ -206,7 +303,8 @@ const ProfilePage: React.FC = () => {
                                                     {role.roleName}
                                                 </h3>
 
-                                                {role.company_name && (
+                                                {/* Показываем заведение только если это не USER роль */}
+                                                {role.role !== 'PORTAL_ROLE_USER' && role.company_name && (
                                                     <div className="mt-2">
                                                         <p className="text-gray-600 text-sm">Заведение:</p>
                                                         <p className="font-medium text-gray-800">
@@ -235,16 +333,6 @@ const ProfilePage: React.FC = () => {
                                 ))}
                             </AnimatePresence>
                         </ul>
-                    </motion.div>
-                )}
-
-                {showRoles && roles.length === 0 && !isLoading && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="bg-white rounded-xl shadow-lg p-6 text-center"
-                    >
-                        <p className="text-gray-600">Роли не назначены</p>
                     </motion.div>
                 )}
             </AnimatePresence>

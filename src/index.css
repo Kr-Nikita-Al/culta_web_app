@@ -29,3 +29,53 @@ body {
 .bg-amber-50 {
   background-color: #fffbeb;
 }
+
+.oauth-button {
+  transition: all 0.3s ease;
+}
+
+.oauth-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Специфичные стили для каждого провайдера */
+.oauth-yandex {
+  border-color: #FFCC00;
+  color: #000;
+}
+
+.oauth-yandex:hover {
+  background-color: #FFCC00;
+  color: white;
+}
+
+.oauth-google {
+  border-color: #4285F4;
+  color: #4285F4;
+}
+
+.oauth-google:hover {
+  background-color: #4285F4;
+  color: white;
+}
+
+.oauth-apple {
+  border-color: #000;
+  color: #000;
+}
+
+.oauth-apple:hover {
+  background-color: #000;
+  color: white;
+}
+
+.oauth-telegram {
+  border-color: #0088cc;
+  color: #0088cc;
+}
+
+.oauth-telegram:hover {
+  background-color: #0088cc;
+  color: white;
+}
