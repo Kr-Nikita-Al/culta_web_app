@@ -66,6 +66,34 @@ export const getUserRoles = async (token: string): Promise<UserRole[]> => {
     return response.json();
 };
 
+export const validateToken = async (token: string): Promise<boolean> => {
+    try {
+        const response = await axios.get(`${config.apiBaseUrl}/validate_token`, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            },
+            timeout: 5000
+        });
+        return response.status === 200;
+    } catch (error) {
+        console.error('Token validation failed:', error);
+        return false;
+    }
+};
+
+export const refreshToken = async (oldToken: string): Promise<string> => {
+    try {
+        const response = await axios.post(`${config.apiBaseUrl}/refresh_token`, {}, {
+            headers: {
+                Authorization: `Bearer ${oldToken}`
+            }
+        });
+        return response.data.access_token;
+    } catch (error) {
+        throw new Error('Failed to refresh token');
+    }
+};
+
 // В oauthService.ts
 export const generateOAuthState = () => {
     const state = Math.random().toString(36).substring(2, 15);

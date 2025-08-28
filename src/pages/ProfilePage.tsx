@@ -54,15 +54,15 @@ const ProfilePage: React.FC = () => {
         const loadUserInfo = async () => {
             setIsLoadingUserInfo(true);
             try {
-                const userData = await api.callApi(() => {
-                    if (!token || !userId) throw new Error('Отсутствует токен или ID пользователя');
-                    return getUserInfo(token, userId);
-                });
-            } catch (err: any) {
-                console.error('Ошибка загрузки информации о пользователе:', err);
-                setError('Не удалось загрузить информацию о пользователе');
-            } finally {
-                setIsLoadingUserInfo(false);
+                    const userData = await api.callApi(() => {
+                        if (!token || !userId) throw new Error('Отсутствует токен или ID пользователя');
+                        return getUserInfo(token, userId);
+                    });
+                } catch (err: any) {
+                    console.error('Ошибка загрузки информации о пользователе:', err);
+                    setError('Не удалось загрузить информацию о пользователе');
+                } finally {
+                    setIsLoadingUserInfo(false);
             }
         };
 
