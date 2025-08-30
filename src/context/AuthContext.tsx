@@ -1,7 +1,8 @@
 import React, { createContext, useState, useContext, ReactNode, useCallback, useMemo, useEffect } from 'react';
 import { AuthContextType, UserInfo } from '../types/authTypes';
-import { validateToken, refreshToken } from '../services/authService';
+import { validateToken } from '../services/authService';
 import { getUserInfo } from '../services/userService';
+import api from "../services/api";
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -29,56 +30,39 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         const saved = getWithVersion('userInfo');
         return saved ? JSON.parse(saved) : null;
     });
+    const refreshAuthToken = async (): Promise<string | null> => {
+        try {
+            const response = await api.post('/refresh_token');
+            return response.data.access_token;
+        } catch (error) {
+            console.error('Failed to refresh token:', error);
+            return null;
+        }
+    };
 
     // Очистка устаревшего кэша при изменении версии приложения
     useEffect(() => {
-        const currentVersion = localStorage.getItem('appVersion');
-        if (currentVersion !== APP_VERSION) {
-            localStorage.clear();
-            localStorage.setItem('appVersion', APP_VERSION);
-            setToken(null);
-            setUserId(null);
-            setUserInfo(null);
-        }
-    }, []);
-
-    // Проверка и обновление токена при загрузке приложения
-    useEffect(() => {
-        const initializeAuth = async () => {
-            const savedToken = getWithVersion('authToken');
-            const savedUserId = getWithVersion('userId');
-
-            if (savedToken && savedUserId) {
-                try {
-                    // Пытаемся обновить токен
-                    const newToken = await refreshToken(savedToken);
-                    setWithVersion('authToken', newToken);
-                    setToken(newToken);
-
-                    // Загружаем актуальные данные пользователя
-                    const userData = await getUserInfo(newToken, savedUserId);
-                    setUserInfo(userData);
-                    setWithVersion('userInfo', JSON.stringify(userData));
-                } catch (error) {
-                    // Если не удалось обновить, проверяем валидность текущего токена
-                    const isValid = await validateToken(savedToken);
-                    if (!isValid) {
-                        removeWithVersion('authToken');
-                        removeWithVersion('userId');
-                        removeWithVersion('userInfo');
-                        setToken(null);
-                        setUserId(null);
-                        setUserInfo(null);
+        const checkTokenExpiration = async () => {
+            const token = getWithVersion('authToken');
+            if (token) {
+                const isValid = await validateToken(token);
+                if (!isValid) {
+                    const newToken = await refreshAuthToken();
+                    if (newToken) {
+                        setWithVersion('authToken', newToken);
+                        setToken(newToken);
                     } else {
-                        setToken(savedToken);
-                        setUserId(savedUserId);
+                        logout();
                     }
                 }
             }
         };
 
-        initializeAuth();
+        // Проверяем токен каждые 5 минут
+        const interval = setInterval(checkTokenExpiration, 5 * 60 * 1000);
+        return () => clearInterval(interval);
     }, []);
+
 
     const login = useCallback((newToken: string, newUserId: string) => {
         setWithVersion('authToken', newToken);

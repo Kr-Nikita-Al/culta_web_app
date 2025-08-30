@@ -81,3 +81,28 @@ export interface LoginResponse {
     token: string;
     userId: string;
 }
+
+// Добавим к существующим типам
+export interface EnhancedUserInfo extends UserInfo {
+    roles?: RoleWithCompany[];
+    companies?: Company[];
+}
+
+export interface ApiResponse<T> {
+    data: T;
+    status: number;
+    message?: string;
+}
+
+export interface EmailCheckResponse {
+    Success: boolean;
+}
+
+// Добавим тип для создания пользователя
+export interface CreateUserRequest {
+    name: string;
+    surname: string;
+    phone: string;
+    email: string;
+    password: string;
+}

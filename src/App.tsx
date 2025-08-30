@@ -8,9 +8,11 @@ import ProtectedRoute from './components/ProtectedRoute';
 import './index.css';
 import {CompaniesProvider} from "./context/CompaniesContext";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   return (
+      <ErrorBoundary>
       <AuthProvider>
         <CompaniesProvider>
         <Router>
@@ -43,6 +45,7 @@ const App: React.FC = () => {
         </Router>
       </CompaniesProvider>
       </AuthProvider>
+        </ErrorBoundary>
   );
 };
 

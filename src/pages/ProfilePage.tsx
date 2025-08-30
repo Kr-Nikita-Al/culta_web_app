@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useApi } from '../hooks/useApi';
 import { getUserRoles } from '../services/authService';
 import { getUserInfo } from '../services/userService';
-import { Company } from '../types/authTypes';
+import {Company, UserRole} from '../types/authTypes';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useApiCall } from '../hooks/useApiCall';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface EnhancedRole {
     role: string;
@@ -15,14 +17,15 @@ interface EnhancedRole {
 
 const ProfilePage: React.FC = () => {
     const [roles, setRoles] = useState<EnhancedRole[]>([]);
-    const [companiesMap, setCompaniesMap] = useState<Map<string, string>>(new Map());
+    const [companiesMap] = useState<Map<string, string>>(new Map());
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingCompanies] = useState(false);
     const [isLoadingUserInfo, setIsLoadingUserInfo] = useState(false);
     const [showRoles, setShowRoles] = useState(false);
     const { token, userId, userInfo, updateUserInfo } = useAuth();
-    const api = useApi();
+    const { callApi: loadRoles, loading: rolesLoading, error: rolesError } = useApiCall<UserRole[]>();
+    const { callApi } = useApi();
 
     // Мемоизированные функции
     const getRoleName = useCallback((role: string): string => {
@@ -35,45 +38,35 @@ const ProfilePage: React.FC = () => {
         return roleNameMapping[role] || role.replace('PORTAL_ROLE_', '').replace(/_/g, ' ');
     }, []);
 
-    const updateCompaniesMap = useCallback((companies: Company[]) => {
-        const map = new Map();
-        companies.forEach(company => {
-            map.set(company.company_id, company.company_name);
-        });
-        setCompaniesMap(map);
-    }, []);
-
     const getCompanyName = useCallback((companyId: string): string => {
         return companiesMap.get(companyId) || 'Неизвестная компания';
     }, [companiesMap]);
 
-    // Загрузка компаний
     useEffect(() => {
         if (!token || !userId || userInfo) return;
 
         const loadUserInfo = async () => {
             setIsLoadingUserInfo(true);
             try {
-                    const userData = await api.callApi(() => {
-                        if (!token || !userId) throw new Error('Отсутствует токен или ID пользователя');
-                        return getUserInfo(token, userId);
-                    });
-                } catch (err: any) {
-                    console.error('Ошибка загрузки информации о пользователе:', err);
-                    setError('Не удалось загрузить информацию о пользователе');
-                } finally {
-                    setIsLoadingUserInfo(false);
+                // ИСПРАВЛЕННАЯ СТРОКА - используем callApi вместо api.callApi
+                const userData = await callApi(() => {
+                    if (!token || !userId) throw new Error('Отсутствует токен или ID пользователя');
+                    return getUserInfo(token, userId);
+                });
+                // ... остальной код ...
+            } catch (err: any) {
+                console.error('Ошибка загрузки информации о пользователе:', err);
+                setError('Не удалось загрузить информацию о пользователе');
+            } finally {
+                setIsLoadingUserInfo(false);
             }
         };
 
         loadUserInfo();
-    }, [token, userId, userInfo, updateUserInfo, api.callApi]);
+    }, [token, userId, userInfo, updateUserInfo, callApi]);
 
-    // Загрузка информации о пользователе
-    // Добавьте useRef для отслеживания выполнения запроса
     const hasFetchedUserInfo = useRef(false);
 
-// Обновите useEffect для загрузки информации о пользователе
     useEffect(() => {
         // Если уже загружали или нет необходимых данных, выходим
         if (hasFetchedUserInfo.current || !token || !userId || userInfo) return;
@@ -83,7 +76,7 @@ const ProfilePage: React.FC = () => {
             setIsLoadingUserInfo(true);
 
             try {
-                const userData = await api.callApi(() => {
+                const userData = await callApi(() => {
                     if (!token || !userId) {
                         throw new Error('Отсутствует токен или ID пользователя');
                     }
@@ -102,7 +95,7 @@ const ProfilePage: React.FC = () => {
         };
 
         loadUserInfo();
-    }, [token, userId, userInfo, updateUserInfo, api.callApi]);
+    }, [token, userId, userInfo, updateUserInfo, callApi]);
 
     // Добавьте очистку при размонтировании компонента
     useEffect(() => {
@@ -110,6 +103,7 @@ const ProfilePage: React.FC = () => {
             hasFetchedUserInfo.current = false;
         };
     }, []);
+
 
     // Фильтрация ролей - убираем USER если есть другие роли
     const filteredRoles = useMemo(() => {
@@ -130,36 +124,22 @@ const ProfilePage: React.FC = () => {
             return;
         }
 
-        setError(null);
-        setIsLoading(true);
+        const result = await loadRoles(() => getUserRoles(token));
+        if (result) {
+            const enhancedRoles: EnhancedRole[] = result.map(role => {
+                const isSuperAdmin = role.role === 'PORTAL_ROLE_SUPER_ADMIN';
+                return {
+                    role: role.role,
+                    roleName: getRoleName(role.role),
+                    company_id: isSuperAdmin ? undefined : role.company_id,
+                    company_name: isSuperAdmin ? 'Все заведения' : getCompanyName(role.company_id)
+                };
+            });
 
-        try {
-            const result = await api.callApi(() => getUserRoles(token));
-            if (result) {
-                const enhancedRoles: EnhancedRole[] = result.map(role => {
-                    const isSuperAdmin = role.role === 'PORTAL_ROLE_SUPER_ADMIN';
-
-                    return {
-                        role: role.role,
-                        roleName: getRoleName(role.role),
-                        company_id: isSuperAdmin ? undefined : role.company_id,
-                        company_name: isSuperAdmin ? 'Все заведения' : getCompanyName(role.company_id)
-                    };
-                });
-
-                setRoles(enhancedRoles);
-                setShowRoles(true);
-            }
-        } catch (err: any) {
-            if (err.response) {
-                setError(`Ошибка сервера: ${err.response.status} ${err.response.data?.detail || ''}`);
-            } else {
-                setError('Сервер недоступен или проблема с сетью');
-            }
-        } finally {
-            setIsLoading(false);
+            setRoles(enhancedRoles);
+            setShowRoles(true);
         }
-    }, [showRoles, token, api.callApi, getRoleName, getCompanyName]);
+    }, [showRoles, token, getRoleName, getCompanyName, loadRoles]);
 
     // Форматирование даты
     const formatDate = (dateString: string) => {
@@ -238,10 +218,14 @@ const ProfilePage: React.FC = () => {
                             Просмотрите ваши текущие роли в системе
                         </p>
                         {isLoadingCompanies && (
-                            <p className="text-sm text-amber-600 mt-1">Загрузка списка компаний...</p>
+                            <div className="flex justify-center my-2">
+                                <LoadingSpinner size="small" text="Загрузка списка компаний..."/>
+                            </div>
                         )}
                         {isLoadingUserInfo && (
-                            <p className="text-sm text-amber-600 mt-1">Загрузка информации о пользователе...</p>
+                            <div className="flex justify-center my-4">
+                                <LoadingSpinner size="medium" text="Загрузка информации о пользователе..."/>
+                            </div>
                         )}
                     </div>
 
@@ -249,15 +233,12 @@ const ProfilePage: React.FC = () => {
                         onClick={handleToggleRoles}
                         disabled={isLoading || isLoadingCompanies || isLoadingUserInfo}
                         className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-6 rounded-lg transition disabled:opacity-50 flex items-center justify-center"
-                        style={{ width: '220px', minWidth: '220px' }}
+                        style={{width: '220px', minWidth: '220px'}}
                     >
                         {isLoading ? (
                             <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Загрузка...
+                                <LoadingSpinner size="small" text="" className="text-white"/>
+                                <span className="ml-2">Загрузка...</span>
                             </>
                         ) : showRoles ? 'Скрыть мои роли' : 'Показать мои роли'}
                     </button>
@@ -265,8 +246,8 @@ const ProfilePage: React.FC = () => {
 
                 {error && (
                     <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
+                        initial={{opacity: 0, height: 0}}
+                        animate={{opacity: 1, height: 'auto'}}
                         className="mt-4 p-3 bg-red-100 text-red-700 rounded"
                     >
                         {error}
