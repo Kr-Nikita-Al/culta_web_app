@@ -6,67 +6,13 @@ export interface LoginData {
 export interface UserRole {
     company_id: string;
     role: string;
-}
-
-export interface UserRole {
-    company_id: string;
-    role: string;
-}
-
-export interface Company {
-    company_id: string;
-    company_name: string;
-    address: string;
-    phone: string;
-    email: string;
-    is_active: boolean;
-    // Остальные поля при необходимости
-}
-
-export interface CompanyResponse {
-    companies: Company[];
-}
-
-export interface UserRole {
-    company_id: string;
-    role: string;
+    company_name?: string; // Добавим опциональное поле, если сервер его возвращает
 }
 
 // Для роли с дополнительной информацией о компании
 export interface RoleWithCompany extends UserRole {
     company_name?: string;
 }
-
-export interface OAuthProvider {
-    id: string;
-    name: string;
-    icon: string;
-    authUrl: string;
-}
-
-export interface OAuthResponse {
-    token: string;
-    user: any;
-}
-
-export interface UserInfo {
-    user_id: string;
-    name: string;
-    surname: string;
-    phone: string;
-    email: string;
-    is_active: boolean;
-    creator_id: string;
-    updater_id: string;
-    time_created: string;
-    time_updated: string;
-}
-
-export interface LoginData {
-    username: string;
-    password: string;
-}
-
 
 export interface AuthContextType {
     token: string | null;
@@ -88,21 +34,53 @@ export interface EnhancedUserInfo extends UserInfo {
     companies?: Company[];
 }
 
-export interface ApiResponse<T> {
-    data: T;
-    status: number;
-    message?: string;
+export interface Screen {
+    screen_id: string;
 }
 
-export interface EmailCheckResponse {
-    Success: boolean;
+
+
+export interface CompanyResponse {
+    company_id: string;
+    company_name: string;
+    address: string;
+    phone: string;
+    email: string;
+    is_active: boolean;
+    order_number: number;
+    basic_screen_id: string;
+    group_id: number;
+    image_picture_id: string;
+    image_icon_id: string;
+    age_limit: boolean;
+    work_state: boolean;
+    creator_id: string;
+    updater_id: string;
+    time_created: string;
+    time_updated: string;
+    start_time: string;
+    over_time: string;
+    screens: Screen[];
 }
 
-// Добавим тип для создания пользователя
-export interface CreateUserRequest {
+export interface CompaniesListResponse {
+    companies: Company[];
+}
+
+// Удалим старый тип Company или переименуем его
+export interface Company extends CompanyResponse {}
+
+// Обновим интерфейс UserInfo
+export interface UserInfo {
+    user_id: string;
     name: string;
     surname: string;
     phone: string;
     email: string;
-    password: string;
+    is_active: boolean;
+    creator_id: string;
+    updater_id: string;
+    time_created: string;
+    time_updated: string;
+    roles?: UserRole[]; // Добавим опциональное поле для ролей
 }

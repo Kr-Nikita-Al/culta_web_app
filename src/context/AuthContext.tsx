@@ -1,8 +1,20 @@
 import React, { createContext, useState, useContext, ReactNode, useCallback, useMemo, useEffect } from 'react';
-import { AuthContextType, UserInfo } from '../types/authTypes';
-import { validateToken } from '../services/authService';
+import { UserInfo, UserRole } from '../types/authTypes';
+import { getUserRoles, validateToken } from '../services/authService';
 import { getUserInfo } from '../services/userService';
 import api from "../services/api";
+
+// Обновим интерфейс контекста
+export interface AuthContextType {
+    token: string | null;
+    userId: string | null;
+    userInfo: UserInfo | null;
+    roles: UserRole[] | null; // Добавим отдельное поле для ролей
+    login: (token: string, userId: string) => void;
+    logout: () => void;
+    updateUserInfo: (userInfo: UserInfo) => void;
+    updateRoles: (roles: UserRole[]) => void; // Добавим функцию для обновления ролей
+}
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -30,6 +42,11 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         const saved = getWithVersion('userInfo');
         return saved ? JSON.parse(saved) : null;
     });
+    const [roles, setRoles] = useState<UserRole[] | null>(() => {
+        const saved = getWithVersion('userRoles');
+        return saved ? JSON.parse(saved) : null;
+    });
+
     const refreshAuthToken = async (): Promise<string | null> => {
         try {
             const response = await api.post('/refresh_token');
@@ -40,44 +57,67 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         }
     };
 
-    // Очистка устаревшего кэша при изменении версии приложения
     useEffect(() => {
-        const checkTokenExpiration = async () => {
-            const token = getWithVersion('authToken');
-            if (token) {
-                const isValid = await validateToken(token);
-                if (!isValid) {
-                    const newToken = await refreshAuthToken();
-                    if (newToken) {
-                        setWithVersion('authToken', newToken);
-                        setToken(newToken);
-                    } else {
-                        logout();
-                    }
+        const initializeAuth = async () => {
+            const savedToken = getWithVersion('authToken');
+            const savedUserId = getWithVersion('userId');
+
+            if (savedToken && savedUserId) {
+                try {
+                    // Загружаем информацию о пользователе и роли параллельно
+                    const [userData, userRoles] = await Promise.all([
+                        getUserInfo(savedToken, savedUserId),
+                        getUserRoles(savedToken)
+                    ]);
+
+                    setUserInfo(userData);
+                    setRoles(userRoles);
+                    setWithVersion('userInfo', JSON.stringify(userData));
+                    setWithVersion('userRoles', JSON.stringify(userRoles));
+
+                    setToken(savedToken);
+                    setUserId(savedUserId);
+                } catch (error) {
+                    console.error('Ошибка инициализации аутентификации:', error);
+                    logout();
                 }
             }
         };
 
-        // Проверяем токен каждые 5 минут
-        const interval = setInterval(checkTokenExpiration, 5 * 60 * 1000);
-        return () => clearInterval(interval);
+        initializeAuth();
     }, []);
 
-
-    const login = useCallback((newToken: string, newUserId: string) => {
+    const login = useCallback(async (newToken: string, newUserId: string) => {
         setWithVersion('authToken', newToken);
         setWithVersion('userId', newUserId);
         setToken(newToken);
         setUserId(newUserId);
+
+        try {
+            // Загружаем информацию о пользователе и роли параллельно
+            const [userData, userRoles] = await Promise.all([
+                getUserInfo(newToken, newUserId),
+                getUserRoles(newToken)
+            ]);
+
+            setUserInfo(userData);
+            setRoles(userRoles);
+            setWithVersion('userInfo', JSON.stringify(userData));
+            setWithVersion('userRoles', JSON.stringify(userRoles));
+        } catch (error) {
+            console.error('Ошибка загрузки данных пользователя:', error);
+        }
     }, []);
 
     const logout = useCallback(() => {
         removeWithVersion('authToken');
         removeWithVersion('userId');
         removeWithVersion('userInfo');
+        removeWithVersion('userRoles');
         setToken(null);
         setUserId(null);
         setUserInfo(null);
+        setRoles(null);
     }, []);
 
     const updateUserInfo = useCallback((newUserInfo: UserInfo) => {
@@ -85,14 +125,21 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         setUserInfo(newUserInfo);
     }, []);
 
+    const updateRoles = useCallback((newRoles: UserRole[]) => {
+        setWithVersion('userRoles', JSON.stringify(newRoles));
+        setRoles(newRoles);
+    }, []);
+
     const contextValue = useMemo(() => ({
         token,
         userId,
         userInfo,
+        roles,
         login,
         logout,
-        updateUserInfo
-    }), [token, userId, userInfo, login, logout, updateUserInfo]);
+        updateUserInfo,
+        updateRoles
+    }), [token, userId, userInfo, roles, login, logout, updateUserInfo, updateRoles]);
 
     return (
         <AuthContext.Provider value={contextValue}>

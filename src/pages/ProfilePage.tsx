@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApiCall } from '../hooks/useApiCall';
 import LoadingSpinner from '../components/LoadingSpinner';
+import {useCompanies} from "../context/CompaniesContext";
 
 interface EnhancedRole {
     role: string;
@@ -23,9 +24,13 @@ const ProfilePage: React.FC = () => {
     const [isLoadingCompanies] = useState(false);
     const [isLoadingUserInfo, setIsLoadingUserInfo] = useState(false);
     const [showRoles, setShowRoles] = useState(false);
-    const { token, userId, userInfo, updateUserInfo } = useAuth();
     const { callApi: loadRoles, loading: rolesLoading, error: rolesError } = useApiCall<UserRole[]>();
     const { callApi } = useApi();
+    const { companies, refreshCompanies } = useCompanies();
+    // Замените
+// На
+    const { token, userId, userInfo, updateUserInfo } = useAuth();
+
 
     // Мемоизированные функции
     const getRoleName = useCallback((role: string): string => {
@@ -124,22 +129,42 @@ const ProfilePage: React.FC = () => {
             return;
         }
 
-        const result = await loadRoles(() => getUserRoles(token));
-        if (result) {
-            const enhancedRoles: EnhancedRole[] = result.map(role => {
-                const isSuperAdmin = role.role === 'PORTAL_ROLE_SUPER_ADMIN';
-                return {
-                    role: role.role,
-                    roleName: getRoleName(role.role),
-                    company_id: isSuperAdmin ? undefined : role.company_id,
-                    company_name: isSuperAdmin ? 'Все заведения' : getCompanyName(role.company_id)
-                };
-            });
+        setError(null);
+        setIsLoading(true);
 
-            setRoles(enhancedRoles);
-            setShowRoles(true);
+        try {
+            const result = await callApi(() => getUserRoles(token));
+            if (result) {
+                // Загружаем информацию о компаниях
+                await refreshCompanies();
+
+                const companiesList = companies; // Получаем загруженные компании
+
+                const enhancedRoles: EnhancedRole[] = result.map(role => {
+                    const isSuperAdmin = role.role === 'PORTAL_ROLE_SUPER_ADMIN';
+                    const company = companiesList.find(c => c.company_id === role.company_id);
+
+                    return {
+                        role: role.role,
+                        roleName: getRoleName(role.role),
+                        company_id: isSuperAdmin ? undefined : role.company_id,
+                        company_name: isSuperAdmin ? 'Все заведения' : (company ? company.company_name : 'Неизвестная компания')
+                    };
+                });
+
+                setRoles(enhancedRoles);
+                setShowRoles(true);
+            }
+        } catch (err: any) {
+            if (err.response) {
+                setError(`Ошибка сервера: ${err.response.status} ${err.response.data?.detail || ''}`);
+            } else {
+                setError('Сервер недоступен или проблема с сетью');
+            }
+        } finally {
+            setIsLoading(false);
         }
-    }, [showRoles, token, getRoleName, getCompanyName, loadRoles]);
+    }, [showRoles, token, callApi, getRoleName, companies, refreshCompanies]);
 
     // Форматирование даты
     const formatDate = (dateString: string) => {
@@ -235,12 +260,7 @@ const ProfilePage: React.FC = () => {
                         className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-6 rounded-lg transition disabled:opacity-50 flex items-center justify-center"
                         style={{width: '220px', minWidth: '220px'}}
                     >
-                        {isLoading ? (
-                            <>
-                                <LoadingSpinner size="small" text="" className="text-white"/>
-                                <span className="ml-2">Загрузка...</span>
-                            </>
-                        ) : showRoles ? 'Скрыть мои роли' : 'Показать мои роли'}
+                        {showRoles ? 'Скрыть мои роли' : 'Показать мои роли'}
                     </button>
                 </div>
 

@@ -36,7 +36,11 @@ export const getOAuthUrl = (provider: string): string => {
 };
 
 export const getUserRoles = async (token: string): Promise<UserRole[]> => {
-    const response = await api.get('/user_role/get_user_roles');
+    const response = await api.get('/user_role/get_user_roles', {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
     return response.data;
 };
 

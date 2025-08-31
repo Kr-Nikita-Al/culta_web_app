@@ -1,8 +1,8 @@
-import React, {createContext, useContext, useState, useEffect} from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { useApi } from '../hooks/useApi';
 import { getAllCompanies } from '../services/companyService';
-import { Company } from '../types/authTypes';
+import { Company, CompaniesListResponse } from '../types/authTypes';
 
 interface CompaniesContextType {
     companies: Company[];
@@ -24,7 +24,7 @@ export const CompaniesProvider: React.FC<{children: React.ReactNode}> = ({ child
         setIsLoading(true);
         try {
             const response = await callApi(() => getAllCompanies(token));
-            if (response?.companies) {
+            if (response) {
                 setCompanies(response.companies);
                 localStorage.setItem('cachedCompanies', JSON.stringify(response.companies));
             }
@@ -45,9 +45,9 @@ export const CompaniesProvider: React.FC<{children: React.ReactNode}> = ({ child
         }
     }, [token]);
 
-    const refreshCompanies = () => {
+    const refreshCompanies = async (): Promise<void> => {
         localStorage.removeItem('cachedCompanies');
-        loadCompanies();
+        await loadCompanies();
     };
 
     return (
