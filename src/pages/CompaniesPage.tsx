@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
-import { getUserRoles } from '../services/authService';
 import { getCompanyById, updateCompany } from '../services/companyService';
-import { UserRole, Company } from '../types/authTypes';
+import { Company } from '../types/authTypes';
+import { useSelectedCompany } from '../context/SelectedCompanyContext';
+import { useCompanies } from '../context/CompaniesContext';
 import LoadingSpinner from '../components/LoadingSpinner';
 import successImage from '../assets/success.svg';
-import { motion } from 'framer-motion';
+import CreateCompanyForm from '../components/CreateCompanyForm';
+import api from '../services/api';
+import config from "../config";
+import axios from "axios";
+import { useNotifications } from '../context/NotificationContext';
 
 const CompaniesPage: React.FC = () => {
-    const [companies, setCompanies] = useState<Company[]>([]);
-    const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-    const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+    const [companyData, setCompanyData] = useState<Company | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editedCompany, setEditedCompany] = useState<Partial<Company>>({});
     const [loading, setLoading] = useState(false);
@@ -19,13 +22,74 @@ const CompaniesPage: React.FC = () => {
     const [success, setSuccess] = useState<string | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [showSuccess, setShowSuccess] = useState(false);
-
+    const [delegateAction, setDelegateAction] = useState<'grant' | 'revoke'>('grant');
+    const [delegateRole, setDelegateRole] = useState('');
+    const [delegateUserId, setDelegateUserId] = useState('');
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [applyStatus, setApplyStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [superAdminSelectedCompany, setSuperAdminSelectedCompany] = useState<string>('');
+    const { addNotification } = useNotifications();
+    const { selectedCompany: contextSelectedCompany, selectedRole } = useSelectedCompany();
+    const { companies, refreshCompanies } = useCompanies();
     const { token } = useAuth();
     const { callApi } = useApi();
+    const { updateSelectedCompany } = useSelectedCompany();
+    const [companyCache, setCompanyCache] = useState<Record<string, Company>>({});
+
+    const isSuperAdmin = selectedRole?.role === 'PORTAL_ROLE_SUPER_ADMIN';
 
     // Регулярные выражения для валидации
     const phoneRegex = /^(\+7|8)[0-9]{10}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Получаем название выбранной компании
+    const getCompanyName = () => {
+        if (!contextSelectedCompany) return 'Неизвестная компания';
+
+        const company = companies.find(c => c.company_id === contextSelectedCompany);
+        return company?.company_name || 'Неизвестная компания';
+    };
+
+
+    // Загрузка данных компании при изменении выбранной компании
+    useEffect(() => {
+        if (isSuperAdmin) {
+            setLoading(false);
+            return;
+        }
+
+        if (contextSelectedCompany && token) {
+            // Проверяем кеш
+            if (companyCache[contextSelectedCompany]) {
+                setCompanyData(companyCache[contextSelectedCompany]);
+                setEditedCompany(companyCache[contextSelectedCompany]);
+                setLoading(false);
+                return;
+            }
+
+            const loadCompanyData = async () => {
+                setLoading(true);
+                try {
+                    const data = await callApi(() => getCompanyById(contextSelectedCompany));
+                    if (data) {
+                        setCompanyData(data);
+                        setEditedCompany(data);
+                        // Сохраняем в кеш
+                        setCompanyCache(prev => ({
+                            ...prev,
+                            [contextSelectedCompany]: data
+                        }));
+                    }
+                } catch (err) {
+                    setError('Ошибка загрузки данных компании');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            loadCompanyData();
+        }
+    }, [contextSelectedCompany, token, callApi, isSuperAdmin, companyCache]);
 
     // Валидация полей
     const validateField = (name: string, value: string): string => {
@@ -61,84 +125,6 @@ const CompaniesPage: React.FC = () => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const refreshCompanyData = async (companyId: string) => {
-        if (!token) return;
-
-        try {
-            const companyData = await callApi(() => getCompanyById(companyId));
-            if (companyData) {
-                // Обновляем список компаний
-                const updatedCompanies = companies.map(company =>
-                    company.company_id === companyData.company_id ? companyData : company
-                );
-                setCompanies(updatedCompanies);
-
-                // Обновляем выбранную компанию
-                if (selectedCompany?.company_id === companyData.company_id) {
-                    setSelectedCompany(companyData);
-                    setEditedCompany(companyData);
-                }
-            }
-        } catch (error) {
-            console.error('Ошибка обновления данных компании:', error);
-        }
-    };
-
-    // Загрузка ролей пользователя и компаний
-    useEffect(() => {
-        if (!token) return;
-
-        const loadUserRolesAndCompanies = async () => {
-            setLoading(true);
-            try {
-                const roles = await callApi(() => getUserRoles(token));
-                if (roles) {
-                    setUserRoles(roles);
-
-                    // Загружаем информацию о каждой компании администратора
-                    const adminRoles = roles.filter(role =>
-                        role.role === 'PORTAL_ROLE_ADMIN' || role.role === 'PORTAL_ROLE_SUPER_ADMIN'
-                    );
-
-                    const companiesData: Company[] = [];
-                    for (const role of adminRoles) {
-                        const company = await callApi(() => getCompanyById(role.company_id));
-                        if (company) {
-                            companiesData.push(company);
-                        }
-                    }
-
-                    setCompanies(companiesData);
-
-                    // Выбираем первую компанию для отображения
-                    if (companiesData.length > 0) {
-                        setSelectedCompany(companiesData[0]);
-                        setEditedCompany(companiesData[0]);
-                    }
-                }
-            } catch (err) {
-                setError('Ошибка загрузки данных');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadUserRolesAndCompanies();
-    }, [token, callApi]);
-
-    // Обработчик изменения компании в выпадающем списке
-    const handleCompanyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const companyId = e.target.value;
-        const company = companies.find(c => c.company_id === companyId);
-        if (company) {
-            setSelectedCompany(company);
-            setEditedCompany(company);
-            setIsEditing(false);
-            setFieldErrors({});
-        }
-    };
-
-    // Обработчик изменения полей формы
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
         const fieldValue = type === 'checkbox' ? checked : value;
@@ -156,45 +142,117 @@ const CompaniesPage: React.FC = () => {
     };
 
     const handleSave = async () => {
-        if (!selectedCompany || !token || !validateForm()) return;
+        if (!contextSelectedCompany || !token || !validateForm()) return;
 
         setLoading(true);
         setError(null);
         setSuccess(null);
+        setSaveStatus('idle');
 
         try {
-            const updatedCompany = await callApi(() =>
-                updateCompany(selectedCompany.company_id, editedCompany)
-            );
+            await callApi(() => updateCompany(contextSelectedCompany, editedCompany));
 
-            if (updatedCompany) {
-                await refreshCompanyData(selectedCompany.company_id);
+            // Затем запрашиваем обновленные данные
+            const updatedCompanyData = await callApi(() => getCompanyById(contextSelectedCompany));
+            addNotification('Изменения компании сохранены успешно', 'success');
+
+            if (updatedCompanyData) {
+                setCompanyData(updatedCompanyData);
                 setIsEditing(false);
-
-                // Показываем иконку успеха
                 setShowSuccess(true);
+                setSaveStatus('success');
 
-                // Скрываем через 3 секунды
-                setTimeout(() => {
-                    setShowSuccess(false);
-                }, 3000);
+                await refreshCompanies();
+                updateSelectedCompany(updatedCompanyData);
+                setEditedCompany(updatedCompanyData);
+
             }
         } catch (err: any) {
             console.error('Ошибка сохранения:', err);
-
-            if (err.response?.status === 404) {
-                setError('Компания не найдена или была удалена');
-            } else if (err.response?.status === 422) {
-                setError('Все поля пустые');
-            } else if (err.response?.status === 403) {
-                setError('Нет прав для редактирования компании');
-            } else if (err.response?.status === 503) {
-                setError('Внутренняя ошибка сервера');
-            } else {
-                setError('Произошла ошибка при сохранении изменений');
-            }
+            addNotification('Ошибка при сохранении изменений', 'error');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const grantAdminPrivilege = async (userId: string, companyId: string) => {
+        const response = await axios.post(
+            `${config.apiBaseUrl}/user_role/grant_admin_privilege?promo_user_id=${userId}&company_id=${companyId}`,
+            {},
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data;
+    };
+
+    const revokeAdminPrivilege = async (userId: string, companyId: string) => {
+        const response = await axios.post(
+            `${config.apiBaseUrl}/user_role/revoke_admin_privilege?demo_user_id=${userId}&company_id=${companyId}`,
+            {},
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data;
+    };
+
+    const handleDelegateRights = async () => {
+        const targetCompanyId = isSuperAdmin ? superAdminSelectedCompany : contextSelectedCompany;
+
+        if (!targetCompanyId || !delegateRole || !delegateUserId) {
+            setError('Заполните все поля');
+            return;
+        }
+
+        setApplyStatus('idle');
+        setError(null);
+
+        try {
+            let response;
+            if (delegateAction === 'grant' && delegateRole === 'PORTAL_ROLE_ADMIN') {
+                response = await callApi(() => grantAdminPrivilege(delegateUserId, targetCompanyId));
+            } else if (delegateAction === 'revoke' && delegateRole === 'PORTAL_ROLE_ADMIN') {
+                response = await callApi(() => revokeAdminPrivilege(delegateUserId, targetCompanyId));
+            } else {
+                // Остальная логика для других ролей
+                response = await callApi(() =>
+                    api.post('/role/delegate', {
+                        action: delegateAction,
+                        role: delegateRole,
+                        user_id: delegateUserId,
+                        company_id: targetCompanyId
+                    }, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    })
+                );
+            }
+
+            if (response) {
+                addNotification('Права доступа успешно обновлены', 'success');
+                setDelegateUserId('');
+                setDelegateRole('');
+                setApplyStatus('success');
+                setTimeout(() => {
+                    setApplyStatus('idle');
+                    setSuccess(null);
+                }, 2000);
+            }
+        } catch (error: any) {
+            console.error('Ошибка делегирования прав:', error);
+            setError(error.response?.data?.detail || 'Ошибка при делегировании прав');
+            setApplyStatus('error');
+            setTimeout(() => setApplyStatus('idle'), 2000);
+            addNotification('Ошибка при делегировании прав', 'error');
         }
     };
 
@@ -202,9 +260,15 @@ const CompaniesPage: React.FC = () => {
         return <LoadingSpinner text="Загрузка..." />;
     }
 
+    if (!contextSelectedCompany && !isSuperAdmin) {
+        return <div>Компания не выбрана</div>;
+    }
+
     return (
         <div className="max-w-4xl mx-auto p-6">
-            <h1 className="text-3xl font-bold text-coffee-dark mb-8">Управление компаниями</h1>
+            <h1 className="text-3xl font-bold text-coffee-dark mb-8">
+                Компания: {isSuperAdmin ? 'Управление доступом' : getCompanyName()}
+            </h1>
 
             {error && (
                 <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
@@ -218,34 +282,14 @@ const CompaniesPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Выпадающий список компаний */}
-            <div className="mb-6">
-                <label className="block text-coffee-dark mb-2">Выберите компанию:</label>
-                <select
-                    value={selectedCompany?.company_id || ''}
-                    onChange={handleCompanyChange}
-                    className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-amber-500"
-                >
-                    {companies.map(company => (
-                        <option key={company.company_id} value={company.company_id}>
-                            {company.company_name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            {/* Информация о компании */}
-            {selectedCompany && (
-                <div className="bg-white rounded-xl shadow-lg p-6">
+            {/* Информация о компании (только для не-суперадминов) */}
+            {isSuperAdmin ? (
+                <CreateCompanyForm />
+            ) : companyData && (
+                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-semibold text-amber-800">Информация о компании</h2>
                         <div className="flex items-center space-x-4">
-                            {showSuccess && (
-                                <div className="flex items-center">
-                                    <img src={successImage} alt="Успех" className="w-6 h-6 mr-2" />
-                                    <span className="text-green-600 font-medium">Изменено!</span>
-                                </div>
-                            )}
                             {!isEditing ? (
                                 <button
                                     onClick={() => setIsEditing(true)}
@@ -257,16 +301,17 @@ const CompaniesPage: React.FC = () => {
                                 <div className="space-x-2">
                                     <button
                                         onClick={handleSave}
-                                        disabled={Object.keys(fieldErrors).length > 0}
+                                        disabled={Object.keys(fieldErrors).length > 0 || saveStatus !== 'idle'}
                                         className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Сохранить
+                                        {saveStatus === 'success' ? 'Успешно' : saveStatus === 'error' ? 'Неуспех(' : 'Сохранить'}
                                     </button>
                                     <button
                                         onClick={() => {
                                             setIsEditing(false);
-                                            setEditedCompany(selectedCompany);
+                                            setEditedCompany(companyData);
                                             setFieldErrors({});
+                                            setSaveStatus('idle');
                                         }}
                                         className="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded"
                                     >
@@ -289,7 +334,7 @@ const CompaniesPage: React.FC = () => {
                                     className="w-full p-2 border border-gray-300 rounded"
                                 />
                             ) : (
-                                <p className="font-medium">{selectedCompany.company_name}</p>
+                                <p className="font-medium">{companyData.company_name}</p>
                             )}
                         </div>
 
@@ -304,7 +349,7 @@ const CompaniesPage: React.FC = () => {
                                     className="w-full p-2 border border-gray-300 rounded"
                                 />
                             ) : (
-                                <p className="font-medium">{selectedCompany.address}</p>
+                                <p className="font-medium">{companyData.address}</p>
                             )}
                         </div>
 
@@ -327,7 +372,7 @@ const CompaniesPage: React.FC = () => {
                                     )}
                                 </div>
                             ) : (
-                                <p className="font-medium">{selectedCompany.phone}</p>
+                                <p className="font-medium">{companyData.phone}</p>
                             )}
                         </div>
                         <div>
@@ -348,7 +393,7 @@ const CompaniesPage: React.FC = () => {
                                     )}
                                 </div>
                             ) : (
-                                <p className="font-medium">{selectedCompany.email}</p>
+                                <p className="font-medium">{companyData.email}</p>
                             )}
                         </div>
 
@@ -366,8 +411,83 @@ const CompaniesPage: React.FC = () => {
                                     <span>Включено</span>
                                 </label>
                             ) : (
-                                <p className="font-medium">{selectedCompany.age_limit ? 'Да' : 'Нет'}</p>
+                                <p className="font-medium">{companyData.age_limit ? 'Да' : 'Нет'}</p>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Блок управления доступами для администраторов и суперадминов */}
+            {(isSuperAdmin || selectedRole?.role === 'PORTAL_ROLE_ADMIN') && (
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                    <h2 className="text-xl font-semibold text-amber-800 mb-4">Управление доступами</h2>
+
+                    {isSuperAdmin && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label className="block text-coffee-dark mb-2">Компания</label>
+                                <select
+                                    value={superAdminSelectedCompany}
+                                    onChange={(e) => setSuperAdminSelectedCompany(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded"
+                                >
+                                    <option value="">Выберите компанию</option>
+                                    {companies.map(company => (
+                                        <option key={company.company_id} value={company.company_id}>
+                                            {company.company_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label className="block text-coffee-dark mb-2">Действие</label>
+                            <select
+                                value={delegateAction}
+                                onChange={(e) => setDelegateAction(e.target.value as 'grant' | 'revoke')}
+                                className="w-full p-2 border border-gray-300 rounded"
+                            >
+                                <option value="grant">Выдать</option>
+                                <option value="revoke">Отозвать</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-coffee-dark mb-2">Роль</label>
+                            <select
+                                value={delegateRole}
+                                onChange={(e) => setDelegateRole(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded"
+                            >
+                                <option value="">Выберите роль</option>
+                                <option value="PORTAL_ROLE_MODERATOR">Модератор</option>
+                                <option value="PORTAL_ROLE_ADMIN">Администратор</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-coffee-dark mb-2">ID пользователя</label>
+                            <input
+                                type="text"
+                                value={delegateUserId}
+                                onChange={(e) => setDelegateUserId(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded"
+                                placeholder="Введите ID пользователя"
+                            />
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={handleDelegateRights}
+                                disabled={applyStatus !== 'idle'}
+                                className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-4 rounded disabled:opacity-50"
+                            >
+                                {applyStatus === 'success' ? 'Успешно' : applyStatus === 'error' ? 'Неуспех(' : 'Применить'}
+                            </button>
                         </div>
                     </div>
                 </div>

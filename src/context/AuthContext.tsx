@@ -2,7 +2,6 @@ import React, { createContext, useState, useContext, ReactNode, useCallback, use
 import { UserInfo, UserRole } from '../types/authTypes';
 import { getUserRoles, validateToken } from '../services/authService';
 import { getUserInfo } from '../services/userService';
-import api from "../services/api";
 
 // Обновим интерфейс контекста
 export interface AuthContextType {
@@ -20,7 +19,6 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 // Константы версий
 const CACHE_VERSION = 'v2';
-const APP_VERSION = '1.0.0';
 
 // Функции для работы с версионированным localStorage
 const getWithVersion = (key: string): string | null => {
@@ -47,16 +45,6 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         return saved ? JSON.parse(saved) : null;
     });
 
-    const refreshAuthToken = async (): Promise<string | null> => {
-        try {
-            const response = await api.post('/refresh_token');
-            return response.data.access_token;
-        } catch (error) {
-            console.error('Failed to refresh token:', error);
-            return null;
-        }
-    };
-
     useEffect(() => {
         const initializeAuth = async () => {
             const savedToken = getWithVersion('authToken');
@@ -64,7 +52,6 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
 
             if (savedToken && savedUserId) {
                 try {
-                    // Загружаем информацию о пользователе и роли параллельно
                     const [userData, userRoles] = await Promise.all([
                         getUserInfo(savedToken, savedUserId),
                         getUserRoles(savedToken)
@@ -87,6 +74,24 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         initializeAuth();
     }, []);
 
+    const logout = useCallback(() => {
+        removeWithVersion('authToken');
+        removeWithVersion('userId');
+        removeWithVersion('userInfo');
+        removeWithVersion('userRoles');
+        setToken(null);
+        setUserId(null);
+        setUserInfo(null);
+        setRoles(null);
+
+        // Очищаем выбранную компанию и кеш компаний
+        localStorage.removeItem('selectedCompany');
+        localStorage.removeItem('cachedCompanies');
+
+        // Принудительно обновляем страницу для полного сброса состояния
+        window.location.href = '/login';
+    }, []);
+
     const login = useCallback(async (newToken: string, newUserId: string) => {
         setWithVersion('authToken', newToken);
         setWithVersion('userId', newUserId);
@@ -107,17 +112,6 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         } catch (error) {
             console.error('Ошибка загрузки данных пользователя:', error);
         }
-    }, []);
-
-    const logout = useCallback(() => {
-        removeWithVersion('authToken');
-        removeWithVersion('userId');
-        removeWithVersion('userInfo');
-        removeWithVersion('userRoles');
-        setToken(null);
-        setUserId(null);
-        setUserInfo(null);
-        setRoles(null);
     }, []);
 
     const updateUserInfo = useCallback((newUserInfo: UserInfo) => {

@@ -1,5 +1,5 @@
-import React from 'react';
-import { useAuth } from '../context/AuthContext';
+import React, {useCallback} from 'react';
+import { useSelectedCompany } from '../context/SelectedCompanyContext';
 
 interface SidebarProps {
     activeTab: string;
@@ -7,12 +7,20 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
-    const { roles } = useAuth(); // Используем отдельное состояние ролей
+    const { selectedRole } = useSelectedCompany();
 
-    // Проверяем, есть ли у пользователя административные роли
-    const isAdmin = roles?.some(role =>
-        role.role === 'PORTAL_ROLE_ADMIN' || role.role === 'PORTAL_ROLE_SUPER_ADMIN'
+    // Проверяем, является ли выбранная роль пользовательской
+    const isUserRole = selectedRole?.role === 'PORTAL_ROLE_USER';
+
+    // Показываем вкладку "Компания" только если роль не пользовательская и есть админские права
+    const shouldShowCompaniesTab = !isUserRole && selectedRole && (
+        selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
+        selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
     );
+
+    // Мемоизируем обработчики для предотвращения лишних рендеров
+    const handleProfileClick = useCallback(() => onTabChange('profile'), [onTabChange]);
+    const handleCompaniesClick = useCallback(() => onTabChange('companies'), [onTabChange]);
 
     return (
         <div className="w-64 mt-8 ml-16">
@@ -22,7 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                     <ul className="space-y-3">
                         <li>
                             <button
-                                onClick={() => onTabChange('profile')}
+                                onClick={handleProfileClick}
                                 className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
                                     activeTab === 'profile'
                                         ? 'bg-white bg-opacity-20 text-white shadow-md'
@@ -33,17 +41,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                             </button>
                         </li>
 
-                        {isAdmin && (
+                        {shouldShowCompaniesTab && (
                             <li>
                                 <button
-                                    onClick={() => onTabChange('companies')}
+                                    onClick={handleCompaniesClick}
                                     className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
                                         activeTab === 'companies'
                                             ? 'bg-white bg-opacity-20 text-white shadow-md'
                                             : 'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10 hover:text-opacity-100'
                                     }`}
                                 >
-                                    Компании
+                                    Компания
                                 </button>
                             </li>
                         )}

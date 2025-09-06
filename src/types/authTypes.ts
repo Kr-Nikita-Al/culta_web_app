@@ -38,7 +38,12 @@ export interface Screen {
     screen_id: string;
 }
 
-
+export interface DelegateRightsData {
+    action: 'grant' | 'revoke';
+    role: string;
+    user_id: string;
+    company_id: string;
+}
 
 export interface CompanyResponse {
     company_id: string;
