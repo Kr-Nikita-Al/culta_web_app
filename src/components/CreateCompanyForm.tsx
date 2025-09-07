@@ -12,6 +12,7 @@ const CreateCompanyForm: React.FC = () => {
         phone: '',
         email: '',
         age_limit: false,
+        work_state: false,
         start_time: '09:00:00',
         over_time: '21:00:00',
         order_number: 0
@@ -51,14 +52,13 @@ const CreateCompanyForm: React.FC = () => {
 
             if (response) {
                 addNotification('Компания успешно создана', 'success');
-                setSuccess('Компания успешно создана!');
-                // Сбросить форму
                 setFormData({
                     company_name: '',
                     address: '',
                     phone: '',
                     email: '',
                     age_limit: false,
+                    work_state: false,
                     start_time: '09:00:00',
                     over_time: '21:00:00',
                     order_number: 0
