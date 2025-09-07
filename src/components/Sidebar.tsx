@@ -1,5 +1,6 @@
 import React, {useCallback} from 'react';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
+import {useNavigate} from "react-router-dom";
 
 interface SidebarProps {
     activeTab: string;
@@ -8,8 +9,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     const { selectedRole } = useSelectedCompany();
-
-    // Проверяем, является ли выбранная роль пользовательской
+    const navigate = useNavigate();
     const isUserRole = selectedRole?.role === 'PORTAL_ROLE_USER';
 
     // Показываем вкладку "Компания" только если роль не пользовательская и есть админские права
@@ -19,8 +19,15 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     );
 
     // Мемоизируем обработчики для предотвращения лишних рендеров
-    const handleProfileClick = useCallback(() => onTabChange('profile'), [onTabChange]);
-    const handleCompaniesClick = useCallback(() => onTabChange('companies'), [onTabChange]);
+    const handleProfileClick = useCallback(() => {
+        onTabChange('profile');
+        navigate('/profile/user_info');
+    }, [onTabChange, navigate]);
+
+    const handleCompaniesClick = useCallback(() => {
+        onTabChange('companies');
+        navigate('/profile/company');
+    }, [onTabChange, navigate]);
 
     return (
         <div className="w-64 mt-8 ml-16">

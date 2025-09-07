@@ -23,7 +23,7 @@ const LoginPage: React.FC = () => {
 
             if (result) {
                 login(result.token, result.userId);
-                navigate('/profile');
+                navigate('/profile/user_info');
             }
         } catch (err: any) {
             setError(err.message || 'Ошибка авторизации');

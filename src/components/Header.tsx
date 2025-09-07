@@ -50,7 +50,7 @@ const Header: React.FC = () => {
     const handleCompanyChange = (companyId: string | null, role: any) => {
         setSelectedCompany(companyId, role);
         setShowCompanyDropdown(false);
-        navigate('/profile');
+        navigate('/profile/user_info');
     };
 
     const handleLogout = () => {

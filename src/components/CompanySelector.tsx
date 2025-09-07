@@ -15,9 +15,10 @@ const CompanySelector: React.FC = () => {
     // Если суперадминистратор, сразу перенаправляем на профиль
     useEffect(() => {
         if (isSuperAdmin) {
-            navigate('/profile', { replace: true });
+            navigate('/profile/user_info', { replace: true });
         }
     }, [isSuperAdmin, navigate]);
+
 
     if (isSuperAdmin) {
         return null;
@@ -44,9 +45,10 @@ const CompanySelector: React.FC = () => {
                 company_id: 'user',
                 role: 'PORTAL_ROLE_USER'
             });
-            navigate('/profile', { replace: true });
+            navigate('/profile/user_info', { replace: true });
             return;
         }
+
 
         // Обработка выбора роли "Супер администратор"
         if (selectedValue === 'superadmin') {
@@ -54,7 +56,7 @@ const CompanySelector: React.FC = () => {
                 company_id: 'superadmin',
                 role: 'PORTAL_ROLE_SUPER_ADMIN'
             });
-            navigate('/profile', { replace: true });
+            navigate('/profile/user_info', { replace: true });
             return;
         }
 
@@ -62,7 +64,7 @@ const CompanySelector: React.FC = () => {
         const selected = availableCompanies.find(c => c.companyId === selectedValue);
         if (selected) {
             setSelectedCompany(selected.companyId, selected.role);
-            navigate('/profile', { replace: true });
+            navigate('/profile/user_info', { replace: true });
         } else {
             alert('Выбранная компания не найдена');
         }

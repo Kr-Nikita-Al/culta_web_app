@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {BrowserRouter as Router, Routes, Route, useLocation} from 'react-router-dom';
+import {BrowserRouter as Router, Routes, Route, useLocation, Navigate, useNavigate} from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CompaniesProvider } from './context/CompaniesContext';
 import { SelectedCompanyProvider, useSelectedCompany } from './context/SelectedCompanyContext';
@@ -23,9 +23,7 @@ const AppContent: React.FC = () => {
     const { companies } = useCompanies();
     const { availableCompanies, setAvailableCompanies, selectedCompany, selectedRole, setSelectedCompany } = useSelectedCompany();
     const location = useLocation();
-
-    const profileTabContent = useMemo(() => <ProfilePage />, []);
-    const companiesTabContent = useMemo(() => <CompaniesPage />, []);
+    const navigate = useNavigate();
     const isSuperAdmin = roles?.some(role => role.role === 'PORTAL_ROLE_SUPER_ADMIN');
 
     const companiesWithNames = useMemo(() => {
@@ -48,6 +46,14 @@ const AppContent: React.FC = () => {
     }, [roles, companies]);
 
     useEffect(() => {
+        if (location.pathname.includes('/profile/company')) {
+            setActiveTab('companies');
+        } else if (location.pathname.includes('/profile/user_info')) {
+            setActiveTab('profile');
+        }
+    }, [location]);
+
+    useEffect(() => {
         if (token && roles && !selectedCompany && !selectedRole && !isCheckingRoles) {
             // Если у пользователя только роль "Пользователь", автоматически выбираем ее
             const hasOnlyUserRole = roles.length === 1 && roles[0].role === 'PORTAL_ROLE_USER';
@@ -63,7 +69,6 @@ const AppContent: React.FC = () => {
             }
         }
     }, [token, roles, selectedCompany, selectedRole, isCheckingRoles, isSuperAdmin, setSelectedCompany]);
-
 
     // Устанавливаем доступные компании
     useEffect(() => {
@@ -89,18 +94,39 @@ const AppContent: React.FC = () => {
         }
     }, [token, roles, selectedCompany]);
 
+    const handleTabChange = (tab: string) => {
+        setActiveTab(tab);
+        if (tab === 'profile') {
+            navigate('/profile/user_info');
+        } else if (tab === 'companies') {
+            navigate('/profile/company');
+        }
+    };
+
     const shouldShowCompanySelector = token &&
         availableCompanies.length > 0 &&
         !selectedCompany &&
         !selectedRole &&
         !hasOnlyUserRole &&
-        !isSuperAdmin &&
-        location.pathname !== '/login' &&
-        !location.pathname.startsWith('/auth/');
+        !isSuperAdmin;
+
+    useEffect(() => {
+        if (token && roles && !isCheckingRoles) {
+            // Если у пользователя несколько ролей и нужно показать селектор,
+            // перенаправляем на /profile/selector
+            if (shouldShowCompanySelector && location.pathname !== '/profile/selector') {
+                navigate('/profile/selector', { replace: true });
+            }
+            // Если у пользователя только одна роль (USER), перенаправляем на профиль
+            else if (hasOnlyUserRole && location.pathname !== '/profile/user_info') {
+                navigate('/profile/user_info', { replace: true });
+            }
+        }
+    }, [token, roles, isCheckingRoles, shouldShowCompanySelector, hasOnlyUserRole, location.pathname, navigate]);
 
 
-    if (shouldShowCompanySelector) {
-        return <CompanySelector />;
+    if (shouldShowCompanySelector && location.pathname !== '/profile/selector') {
+        return <Navigate to="/profile/selector" replace />;
     }
 
     if (isCheckingRoles && token) {
@@ -120,22 +146,38 @@ const AppContent: React.FC = () => {
             <Routes>
                 <Route path="/login" element={<LoginPage/>}/>
                 <Route path="/auth/:provider/callback" element={<OAuthCallbackPage/>}/>
-                <Route path="*" element={
+                <Route path="/profile/selector" element={
                     <ProtectedRoute>
-                        <>
-                            <Header/>
-                            <div className="flex pt-16 min-h-screen"> {/* Добавляем pt-16 для отступа под фиксированным header */}
-                                <Sidebar activeTab={activeTab} onTabChange={setActiveTab}/>
-                                <div className="flex-1 ml-6 mb-8">
-                                    <main className="min-h-[calc(100vh-8rem)] ml-4">
-                                        {activeTab === 'profile' && profileTabContent}
-                                        {activeTab === 'companies' && companiesTabContent}
-                                    </main>
-                                </div>
-                            </div>
-                        </>
+                        <CompanySelector />
                     </ProtectedRoute>
                 }/>
+                <Route path="/profile/user_info" element={
+                    <ProtectedRoute>
+                        <Header/>
+                        <div className="flex pt-16 min-h-screen">
+                            <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
+                            <div className="flex-1 ml-6 mb-8">
+                                <main className="min-h-[calc(100vh-8rem)] ml-4">
+                                    <ProfilePage />
+                                </main>
+                            </div>
+                        </div>
+                    </ProtectedRoute>
+                }/>
+                <Route path="/profile/company" element={
+                    <ProtectedRoute>
+                        <Header/>
+                        <div className="flex pt-16 min-h-screen">
+                            <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
+                            <div className="flex-1 ml-6 mb-8">
+                                <main className="min-h-[calc(100vh-8rem)] ml-4">
+                                    <CompaniesPage />
+                                </main>
+                            </div>
+                        </div>
+                    </ProtectedRoute>
+                }/>
+                <Route path="*" element={<Navigate to="/profile/user_info" replace />} />
             </Routes>
         </div>
     );

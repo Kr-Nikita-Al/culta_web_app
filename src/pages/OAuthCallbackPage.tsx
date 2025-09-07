@@ -18,7 +18,7 @@ const OAuthCallbackPage: React.FC = () => {
     useEffect(() => {
         // Если уже аутентифицированы, перенаправляем на профиль
         if (token) {
-            navigate('/profile', { replace: true });
+            navigate('/profile/user_info', { replace: true });
             return;
         }
         const handleOAuthCallback = async () => {
