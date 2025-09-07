@@ -203,6 +203,34 @@ const CompaniesPage: React.FC = () => {
         return response.data;
     };
 
+    const grantModeratorPrivilege = async (userId: string, companyId: string) => {
+        const response = await axios.post(
+            `${config.apiBaseUrl}/user_role/grant_moderator_privilege?promo_user_id=${userId}&company_id=${companyId}`,
+            {},
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data;
+    };
+
+    const revokeModeratorPrivilege = async (userId: string, companyId: string) => {
+        const response = await axios.post(
+            `${config.apiBaseUrl}/user_role/revoke_moderator_privilege?demo_user_id=${userId}&company_id=${companyId}`,
+            {},
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        return response.data;
+    };
+
     const handleDelegateRights = async () => {
         const targetCompanyId = isSuperAdmin ? superAdminSelectedCompany : contextSelectedCompany;
 
@@ -220,6 +248,10 @@ const CompaniesPage: React.FC = () => {
                 response = await callApi(() => grantAdminPrivilege(delegateUserId, targetCompanyId));
             } else if (delegateAction === 'revoke' && delegateRole === 'PORTAL_ROLE_ADMIN') {
                 response = await callApi(() => revokeAdminPrivilege(delegateUserId, targetCompanyId));
+            } else if (delegateAction === 'grant' && delegateRole === 'PORTAL_ROLE_MODERATOR') {
+                response = await callApi(() => grantModeratorPrivilege(delegateUserId, targetCompanyId));
+            } else if (delegateAction === 'revoke' && delegateRole === 'PORTAL_ROLE_MODERATOR') {
+                response = await callApi(() => revokeModeratorPrivilege(delegateUserId, targetCompanyId));
             } else {
                 // Остальная логика для других ролей
                 response = await callApi(() =>
@@ -301,7 +333,7 @@ const CompaniesPage: React.FC = () => {
                                 <div className="space-x-2">
                                     <button
                                         onClick={handleSave}
-                                        disabled={Object.keys(fieldErrors).length > 0 || saveStatus !== 'idle'}
+                                        disabled={Object.keys(fieldErrors).length > 0}
                                         className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {saveStatus === 'success' ? 'Успешно' : saveStatus === 'error' ? 'Неуспех(' : 'Сохранить'}
