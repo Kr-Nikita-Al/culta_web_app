@@ -1,6 +1,6 @@
 import React, {useCallback} from 'react';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
-import {useNavigate} from "react-router-dom";
+import { useNavigate } from 'react-router-dom';
 
 interface SidebarProps {
     activeTab: string;
@@ -10,11 +10,20 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     const { selectedRole } = useSelectedCompany();
     const navigate = useNavigate();
+
+    // Проверяем, является ли выбранная роль пользовательской
     const isUserRole = selectedRole?.role === 'PORTAL_ROLE_USER';
 
     // Показываем вкладку "Компания" только если роль не пользовательская и есть админские права
     const shouldShowCompaniesTab = !isUserRole && selectedRole && (
         selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
+        selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
+    );
+
+    // Показываем вкладку "Изображения" для администраторов и модераторов
+    const shouldShowImagesTab = !isUserRole && selectedRole && (
+        selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
+        selectedRole.role === 'PORTAL_ROLE_MODERATOR' ||
         selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
     );
 
@@ -27,6 +36,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     const handleCompaniesClick = useCallback(() => {
         onTabChange('companies');
         navigate('/profile/company');
+    }, [onTabChange, navigate]);
+
+    const handleImagesClick = useCallback(() => {
+        onTabChange('images');
+        navigate('/profile/images');
     }, [onTabChange, navigate]);
 
     return (
@@ -59,6 +73,21 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                                     }`}
                                 >
                                     Компания
+                                </button>
+                            </li>
+                        )}
+
+                        {shouldShowImagesTab && (
+                            <li>
+                                <button
+                                    onClick={handleImagesClick}
+                                    className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
+                                        activeTab === 'images'
+                                            ? 'bg-white bg-opacity-20 text-white shadow-md'
+                                            : 'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10 hover:text-opacity-100'
+                                    }`}
+                                >
+                                    Изображения
                                 </button>
                             </li>
                         )}

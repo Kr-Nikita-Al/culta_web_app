@@ -15,6 +15,7 @@ import CompanySelector from './components/CompanySelector';
 import { useAuth } from './context/AuthContext';
 import { useCompanies } from './context/CompaniesContext';
 import './index.css';
+import ImagesPage from './pages/ImagesPage';
 
 const AppContent: React.FC = () => {
     const [activeTab, setActiveTab] = useState('profile');
@@ -50,6 +51,8 @@ const AppContent: React.FC = () => {
             setActiveTab('companies');
         } else if (location.pathname.includes('/profile/user_info')) {
             setActiveTab('profile');
+        } else if (location.pathname.includes('/profile/images')) {
+            setActiveTab('images');
         }
     }, [location]);
 
@@ -100,6 +103,8 @@ const AppContent: React.FC = () => {
             navigate('/profile/user_info');
         } else if (tab === 'companies') {
             navigate('/profile/company');
+        } else if (tab === 'images') {
+            navigate('/profile/images');
         }
     };
 
@@ -175,6 +180,21 @@ const AppContent: React.FC = () => {
                                 </main>
                             </div>
                         </div>
+                    </ProtectedRoute>
+                }/>
+                <Route path="/profile/images" element={
+                    <ProtectedRoute>
+                        <>
+                            <Header/>
+                            <div className="flex pt-16 min-h-screen">
+                                <Sidebar activeTab={activeTab} onTabChange={handleTabChange}/>
+                                <div className="flex-1 ml-6 mb-8">
+                                    <main className="min-h-[calc(100vh-8rem)] ml-4">
+                                        <ImagesPage />
+                                    </main>
+                                </div>
+                            </div>
+                        </>
                     </ProtectedRoute>
                 }/>
                 <Route path="*" element={<Navigate to="/profile/user_info" replace />} />

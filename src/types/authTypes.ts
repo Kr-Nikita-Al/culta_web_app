@@ -14,35 +14,13 @@ export interface RoleWithCompany extends UserRole {
     company_name?: string;
 }
 
-export interface AuthContextType {
-    token: string | null;
-    userId: string | null;
-    userInfo: UserInfo | null;
-    login: (token: string, userId: string) => void; // Изменено на 2 параметра
-    logout: () => void;
-    updateUserInfo: (userInfo: UserInfo) => void;
-}
-
 export interface LoginResponse {
     token: string;
     userId: string;
 }
 
-// Добавим к существующим типам
-export interface EnhancedUserInfo extends UserInfo {
-    roles?: RoleWithCompany[];
-    companies?: Company[];
-}
-
 export interface Screen {
     screen_id: string;
-}
-
-export interface DelegateRightsData {
-    action: 'grant' | 'revoke';
-    role: string;
-    user_id: string;
-    company_id: string;
 }
 
 export interface CompanyResponse {
@@ -88,4 +66,59 @@ export interface UserInfo {
     time_created: string;
     time_updated: string;
     roles?: UserRole[]; // Добавим опциональное поле для ролей
+}
+
+export interface Image {
+    image_id: string;
+    company_id: string;
+    type_col: string;
+    image_type: string;
+    file_path: string;
+    title: string;
+    file_name: string;
+    resolution: string;
+    tags: string;
+    order_number: number;
+    size: number;
+    width: number;
+    height: number;
+    is_hidden: boolean;
+    is_used: boolean;
+    company_group_id: string;
+    creator_id: string;
+    time_created: string;
+}
+
+export interface ImageListResponse {
+    images: Image[];
+}
+
+export interface ImageUrlResponse {
+    url: string;
+    image: Image;
+}
+
+export interface ImageUploadResponse {
+    image_id: string;
+    company_id: string;
+    type_col: string;
+    image_type: string;
+    file_path: string;
+    title: string;
+    file_name: string;
+    resolution: string;
+    tags: string;
+    order_number: number;
+    size: number;
+    width: number;
+    height: number;
+    is_hidden: boolean;
+    is_used: boolean;
+    company_group_id: string;
+    creator_id: string;
+    time_created: string;
+}
+
+export interface DirectoryObjects {
+    [key: string]: number;
 }
