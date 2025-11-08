@@ -12,7 +12,7 @@ const CompanySelector: React.FC = () => {
     // Проверяем, является ли пользователь суперадминистратором
     const isSuperAdmin = roles?.some(role => role.role === 'PORTAL_ROLE_SUPER_ADMIN');
 
-    // Если суперадминистратор, сразу перенаправляем на профиль
+// Если суперадминистратор, сразу перенаправляем на профиль
     useEffect(() => {
         if (isSuperAdmin) {
             navigate('/profile/user_info', { replace: true });

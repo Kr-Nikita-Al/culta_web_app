@@ -87,6 +87,18 @@ export interface Image {
     company_group_id: string;
     creator_id: string;
     time_created: string;
+    url?: string; // Добавляем опциональное поле
+}
+
+export interface FolderImagesResponse {
+    images: Image[];
+    folder_path: string;
+    total_count: number;
+    subfolders_count?: number;
+}
+
+export interface RefreshUrlsResponse {
+    urls: Record<string, string>;
 }
 
 export interface ImageListResponse {

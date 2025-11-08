@@ -23,8 +23,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     // Показываем вкладку "Изображения" для администраторов и модераторов
     const shouldShowImagesTab = !isUserRole && selectedRole && (
         selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
-        selectedRole.role === 'PORTAL_ROLE_MODERATOR' ||
-        selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
+        selectedRole.role === 'PORTAL_ROLE_MODERATOR'
     );
 
     // Мемоизируем обработчики для предотвращения лишних рендеров

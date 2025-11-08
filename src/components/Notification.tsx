@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 interface NotificationProps {
     message: string;
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
     onClose: () => void;
     duration?: number;
 }
@@ -20,7 +20,7 @@ const Notification: React.FC<NotificationProps> = ({ message, type, onClose, dur
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
             className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 max-w-sm ${
-                type === 'success' ? 'bg-green-500' : 'bg-red-500'
+                type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'
             } text-white`}
         >
             <div className="flex justify-between items-center">

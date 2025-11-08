@@ -1,9 +1,10 @@
 import api from './api';
 import { ImageListResponse, ImageUrlResponse, ImageUploadResponse } from '../types/authTypes';
+import { Image as ImageType } from '../types/authTypes';
 
 export interface UpdateImageRequest {
-    file_name: string;
-    file_path: string;
+    file_path?: string;
+    title?: string; // ДОБАВИТЬ: опциональное поле title
 }
 
 export interface UpdateImageResponse {
@@ -72,6 +73,54 @@ export const moveImage = async (token: string, imageId: string, data: MoveImageR
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
         },
+    });
+    return response.data;
+};
+
+export interface FolderImagesResponse {
+    images: ImageType[];
+    folder_path: string;
+    total_count: number;
+    subfolders_count?: number;
+}
+
+export interface RefreshUrlsResponse {
+    urls: Record<string, string>;
+}
+
+// Добавьте эти методы:
+export const getFolderImages = async (
+    token: string,
+    companyId: string,
+    folderPath: string,
+    includeSubfolders: boolean = false
+): Promise<FolderImagesResponse> => {
+    const response = await api.get(`/image/get_folder_images`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+        params: {
+            company_id: companyId,
+            folder_path: folderPath,
+            include_subfolders: includeSubfolders
+        }
+    });
+    return response.data;
+};
+
+export const refreshFolderUrls = async (
+    token: string,
+    companyId: string,
+    folderPath: string
+): Promise<RefreshUrlsResponse> => {
+    const response = await api.get(`/image/refresh_folder_urls`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+        params: {
+            company_id: companyId,
+            folder_path: folderPath
+        }
     });
     return response.data;
 };

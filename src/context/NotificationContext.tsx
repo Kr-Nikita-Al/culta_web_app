@@ -5,12 +5,12 @@ import Notification from '../components/Notification';
 interface Notification {
     id: string;
     message: string;
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
 }
 
 interface NotificationContextType {
     notifications: Notification[];
-    addNotification: (message: string, type: 'success' | 'error') => void;
+    addNotification: (message: string, type: 'success' | 'error' | 'info') => void;
     removeNotification: (id: string) => void;
 }
 
@@ -27,7 +27,7 @@ export const useNotifications = () => {
 export const NotificationProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
-    const addNotification = (message: string, type: 'success' | 'error') => {
+    const addNotification = (message: string, type: 'success' | 'error' | 'info') => {
         const id = Date.now().toString();
         setNotifications(prev => [...prev, { id, message, type }]);
     };

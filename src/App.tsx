@@ -16,6 +16,7 @@ import { useAuth } from './context/AuthContext';
 import { useCompanies } from './context/CompaniesContext';
 import './index.css';
 import ImagesPage from './pages/ImagesPage';
+import { ImageCacheProvider } from './context/ImageCacheContext';
 
 const AppContent: React.FC = () => {
     const [activeTab, setActiveTab] = useState('profile');
@@ -58,18 +59,22 @@ const AppContent: React.FC = () => {
 
     useEffect(() => {
         if (token && roles && !selectedCompany && !selectedRole && !isCheckingRoles) {
-            // Если у пользователя только роль "Пользователь", автоматически выбираем ее
+            // ПРИОРИТЕТ 1: Если есть роль суперадмина - выбираем ее
+            const superAdminRole = roles.find(role => role.role === 'PORTAL_ROLE_SUPER_ADMIN');
+            if (superAdminRole) {
+                setSelectedCompany(null, superAdminRole);
+                return;
+            }
+
+            // ПРИОРИТЕТ 2: Если у пользователя только роль "Пользователь", автоматически выбираем ее
             const hasOnlyUserRole = roles.length === 1 && roles[0].role === 'PORTAL_ROLE_USER';
             if (hasOnlyUserRole) {
                 setSelectedCompany(null, roles[0]);
+                return;
             }
-            // Если пользователь суперадминистратор с ролью "Пользователь", выбираем роль "Пользователь"
-            else if (isSuperAdmin && roles.some(role => role.role === 'PORTAL_ROLE_USER')) {
-                const userRole = roles.find(role => role.role === 'PORTAL_ROLE_USER');
-                if (userRole) {
-                    setSelectedCompany(null, userRole);
-                }
-            }
+
+            // ПРИОРИТЕТ 3: Если есть другие роли (админ, модератор) - показываем селектор
+            // (ничего не делаем, селектор покажется автоматически)
         }
     }, [token, roles, selectedCompany, selectedRole, isCheckingRoles, isSuperAdmin, setSelectedCompany]);
 
@@ -85,17 +90,23 @@ const AppContent: React.FC = () => {
         if (token && roles) {
             setIsCheckingRoles(false);
 
-            // Если у пользователя есть админские роли, сразу показываем селектор
-            const hasAdminRoles = roles.some(role =>
-                role.role === 'PORTAL_ROLE_ADMIN' ||
-                role.role === 'PORTAL_ROLE_SUPER_ADMIN'
-            );
+            // Если уже есть выбранная роль - ничего не делаем
+            if (selectedRole) return;
 
-            if (hasAdminRoles && !selectedCompany) {
-                // Не устанавливаем активную вкладку, чтобы не показывать профиль
+            // Автоматически выбираем суперадмина если есть такая роль
+            const superAdminRole = roles.find(role => role.role === 'PORTAL_ROLE_SUPER_ADMIN');
+            if (superAdminRole) {
+                setSelectedCompany(null, superAdminRole);
+                return;
+            }
+
+            // Если только одна роль пользователя - выбираем ее
+            const hasOnlyUserRole = roles.length === 1 && roles[0].role === 'PORTAL_ROLE_USER';
+            if (hasOnlyUserRole) {
+                setSelectedCompany(null, roles[0]);
             }
         }
-    }, [token, roles, selectedCompany]);
+    }, [token, roles, selectedRole, setSelectedCompany]);
 
     const handleTabChange = (tab: string) => {
         setActiveTab(tab);
@@ -211,10 +222,12 @@ const App: React.FC = () => {
                 <CompaniesProvider>
                     <SelectedCompanyProvider>
                         <NotificationProvider>
-                            <Router>
-                                <AppContent />
-                            </Router>
-                            <NotificationContainer />
+                            <ImageCacheProvider>  {/* Добавьте этот провайдер */}
+                                <Router>
+                                    <AppContent />
+                                </Router>
+                                <NotificationContainer />
+                            </ImageCacheProvider>
                         </NotificationProvider>
                     </SelectedCompanyProvider>
                 </CompaniesProvider>

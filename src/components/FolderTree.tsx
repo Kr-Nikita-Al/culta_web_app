@@ -10,13 +10,21 @@ interface FolderTreeProps {
     data: FolderNode;
     onSelectFolder: (path: string) => void;
     level?: number;
+    selectedFolder?: string; // Добавляем пропс для выбранной папки
 }
 
-const FolderTree: React.FC<FolderTreeProps> = ({ data, onSelectFolder, level = 0 }) => {
+const FolderTree: React.FC<FolderTreeProps> = ({
+                                                   data,
+                                                   onSelectFolder,
+                                                   level = 0,
+                                                   selectedFolder
+                                               }) => {
     const [isExpanded, setIsExpanded] = useState(level === 0);
-
     const hasChildren = data.children && data.children.length > 0;
     const paddingLeft = level * 20;
+
+    // Проверяем, выбрана ли текущая папка
+    const isSelected = selectedFolder === data.path;
 
     const handleToggle = () => {
         if (hasChildren) {
@@ -27,7 +35,11 @@ const FolderTree: React.FC<FolderTreeProps> = ({ data, onSelectFolder, level = 0
     return (
         <div>
             <div
-                className="flex items-center py-1 hover:bg-gray-100 cursor-pointer"
+                className={`flex items-center py-1 cursor-pointer transition-colors ${
+                    isSelected
+                        ? 'bg-amber-100 text-amber-800 border-r-2 border-amber-600'
+                        : 'hover:bg-gray-100'
+                }`}
                 style={{ paddingLeft: `${paddingLeft}px` }}
                 onClick={() => onSelectFolder(data.path)}
             >
@@ -39,8 +51,8 @@ const FolderTree: React.FC<FolderTreeProps> = ({ data, onSelectFolder, level = 0
                             handleToggle();
                         }}
                     >
-            {isExpanded ? '▼' : '►'}
-          </span>
+                        {isExpanded ? '▼' : '►'}
+                    </span>
                 )}
                 {!hasChildren && <span className="mr-1 w-4"></span>}
                 <svg className="w-4 h-4 text-amber-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -56,6 +68,7 @@ const FolderTree: React.FC<FolderTreeProps> = ({ data, onSelectFolder, level = 0
                             data={child}
                             onSelectFolder={onSelectFolder}
                             level={level + 1}
+                            selectedFolder={selectedFolder} // Передаем selectedFolder в дочерние компоненты
                         />
                     ))}
                 </div>
