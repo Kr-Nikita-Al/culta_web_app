@@ -1,6 +1,7 @@
 import api from './api';
 import { ImageListResponse, ImageUrlResponse, ImageUploadResponse } from '../types/authTypes';
 import { Image as ImageType } from '../types/authTypes';
+import config from "../config";
 
 export interface UpdateImageRequest {
     file_path?: string;
@@ -16,7 +17,7 @@ export const uploadImage = async (token: string, file: File, metadata: object): 
     formData.append('file', file);
     formData.append('metadata', JSON.stringify(metadata));
 
-    const response = await api.post<ImageUploadResponse>('/image/upload', formData, {
+    const response = await api.post<ImageUploadResponse>(`${config.apiBaseUrl}/image/upload`, formData, {
         headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'multipart/form-data',
@@ -26,7 +27,7 @@ export const uploadImage = async (token: string, file: File, metadata: object): 
 };
 
 export const getCompanyImages = async (token: string, companyId: string): Promise<ImageListResponse> => {
-    const response = await api.get<ImageListResponse>(`/image/get_images_company_by_id?company_id=${companyId}`, {
+    const response = await api.get<ImageListResponse>(`${config.apiBaseUrl}/image/get_images_company_by_id?company_id=${companyId}`, {
         headers: {
             Authorization: `Bearer ${token}`,
         },
@@ -35,7 +36,7 @@ export const getCompanyImages = async (token: string, companyId: string): Promis
 };
 
 export const getImageById = async (token: string, imageId: string): Promise<ImageUrlResponse> => {
-    const response = await api.get<ImageUrlResponse>(`/image/get_by_id?image_id=${imageId}`, {
+    const response = await api.get<ImageUrlResponse>(`${config.apiBaseUrl}/image/get_by_id?image_id=${imageId}`, {
         headers: {
             Authorization: `Bearer ${token}`,
         },
@@ -44,7 +45,7 @@ export const getImageById = async (token: string, imageId: string): Promise<Imag
 };
 
 export const deleteImage = async (token: string, imageId: string): Promise<{ deleted_image_id: string }> => {
-    const response = await api.delete<{ deleted_image_id: string }>(`/image/delete?image_id=${imageId}`, {
+    const response = await api.delete<{ deleted_image_id: string }>(`${config.apiBaseUrl}/image/delete?image_id=${imageId}`, {
         headers: {
             Authorization: `Bearer ${token}`,
         },
@@ -53,22 +54,7 @@ export const deleteImage = async (token: string, imageId: string): Promise<{ del
 };
 
 export const updateImage = async (token: string, imageId: string, data: UpdateImageRequest): Promise<UpdateImageResponse> => {
-    const response = await api.patch<UpdateImageResponse>(`/image/update_by_id?image_id=${imageId}`, data, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-        },
-    });
-    return response.data;
-};
-
-export interface MoveImageRequest {
-    file_name: string;
-    file_path: string;
-}
-
-export const moveImage = async (token: string, imageId: string, data: MoveImageRequest): Promise<UpdateImageResponse> => {
-    const response = await api.patch<UpdateImageResponse>(`/image/update_by_id?image_id=${imageId}`, data, {
+    const response = await api.patch<UpdateImageResponse>(`${config.apiBaseUrl}/image/update_by_id?image_id=${imageId}`, data, {
         headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -95,7 +81,7 @@ export const getFolderImages = async (
     folderPath: string,
     includeSubfolders: boolean = false
 ): Promise<FolderImagesResponse> => {
-    const response = await api.get(`/image/get_folder_images`, {
+    const response = await api.get(`${config.apiBaseUrl}/image/get_folder_images`, {
         headers: {
             Authorization: `Bearer ${token}`,
         },
@@ -113,13 +99,31 @@ export const refreshFolderUrls = async (
     companyId: string,
     folderPath: string
 ): Promise<RefreshUrlsResponse> => {
-    const response = await api.get(`/image/refresh_folder_urls`, {
+    const response = await api.get(`${config.apiBaseUrl}/image/refresh_folder_urls`, {
         headers: {
             Authorization: `Bearer ${token}`,
         },
         params: {
             company_id: companyId,
             folder_path: folderPath
+        }
+    });
+    return response.data;
+};
+
+export interface StorageInfo {
+    quota_count_images: number;
+    quota_storage_size: number;
+    used_count: number;
+    used_size: number;
+}
+
+// Функция для получения лимитов компании
+export const getStorageInfo = async (token: string, companyId: string): Promise<StorageInfo> => {
+    const response = await api.get(`${config.apiBaseUrl}/s3_directory/get_storage_info_company_by_id?company_id=${companyId}`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
         }
     });
     return response.data;

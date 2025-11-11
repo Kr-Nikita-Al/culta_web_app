@@ -3,7 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useApi } from '../hooks/useApi';
-import { uploadImage, getFolderImages, getImageById, deleteImage, updateImage, refreshFolderUrls } from '../services/imageService';
+import {
+    uploadImage,
+    getImageById,
+    deleteImage,
+    updateImage,
+    getStorageInfo,
+    StorageInfo
+} from '../services/imageService';
 import {
     createDirectory,
     deleteDirectory,
@@ -239,7 +246,6 @@ const FastImage: React.FC<{
     );
 };
 
-
 const ImagesPage: React.FC = () => {
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(true);
@@ -266,6 +272,7 @@ const ImagesPage: React.FC = () => {
     const [cacheUpdateTrigger, setCacheUpdateTrigger] = useState(0);
     const [renamingFolders, setRenamingFolders] = useState<Set<string>>(new Set());
 
+    const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
     const { selectedCompany } = useSelectedCompany();
     const basePath = `company_images/company_${selectedCompany}/`;
     const [currentPath, setCurrentPath] = useState(basePath);
@@ -293,18 +300,31 @@ const ImagesPage: React.FC = () => {
         updateFolderCacheDirectly
     } = useImageCache();
 
+    const loadStorageLimits = useCallback(async () => {
+        if (!token || !selectedCompany) return;
 
+        try {
+            const response = await callApi(() => getStorageInfo(token, selectedCompany));
+            if (response) {
+                setStorageInfo(response);
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки лимитов хранилища:', error);
+        }
+    }, [token, selectedCompany, callApi]);
 
-// Обновите useMemo для images с зависимостью от cacheUpdateTrigger:
+    // Загружаем лимиты при изменении компании
+    useEffect(() => {
+        if (selectedCompany) {
+            loadStorageLimits();
+        }
+    }, [selectedCompany, loadStorageLimits]);
+
+    // Обновите useMemo для images с зависимостью от cacheUpdateTrigger:
     const images = useMemo(() => {
         const folderImages = getCurrentFolderImages(currentPath);
         return folderImages || []; // ГАРАНТИРУЕМ ЧТО ВСЕГДА ВОЗВРАЩАЕМ МАССИВ
     }, [currentPath, getCurrentFolderImages, cacheUpdateTrigger]);
-
-    console.log(`🖼️ Отображение ${images.length} изображений в папке ${currentPath}`);
-    images.forEach((image, index) => {
-        console.log(`  ${index + 1}. ${image.image_id} - ${image.file_name}`);
-    });
 
     // Загрузка полной структуры папок при инициализации
     const loadFullFolderStructure = async (forceRefresh = false) => {
@@ -349,6 +369,16 @@ const ImagesPage: React.FC = () => {
             setFolders(currentFolders);
             throw error;
         }
+    };
+
+    const formatSize = (bytes: number): string => {
+        if (bytes === 0) return '0 B';
+
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
     // Обработка объектов директории из полной структуры
@@ -770,7 +800,7 @@ const ImagesPage: React.FC = () => {
 
         if (successfulUploads > 0) {
             addNotification(`Успешно загружено ${successfulUploads} из ${selectedFiles.length} файлов`, 'success');
-
+            loadStorageLimits();
             // 2. ОБНОВЛЯЕМ КЕШ: добавляем только новые изображения к существующим
             // Фильтруем изображения у которых есть URL
             const imagesWithUrls = newImages.filter(img => img.url);
@@ -809,6 +839,7 @@ const ImagesPage: React.FC = () => {
 
                 if (result) {
                     removeImageFromCache(selectedCompany, currentPath, imageId);
+                    loadStorageLimits();
                     setSelectedImages(prev => prev.filter(id => id !== imageId));
                 }
             } catch (error: any) {
@@ -1874,7 +1905,7 @@ const ImagesPage: React.FC = () => {
                             <p className="text-gray-500 text-center py-4">Нет изображений</p>
                         ) : (
                             <div
-                                className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4"
+                                className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3"
                                 style={{
                                     maxHeight: 'calc(3 * (8rem + 1rem))', // 3 ряда * (высота изображения + gap)
                                     overflowY: 'auto'
@@ -2008,6 +2039,78 @@ const ImagesPage: React.FC = () => {
                         )}
                     </div>
                 </div>
+                {/* Блок информации о лимитах - улучшенный современный вариант */}
+                {storageInfo && (
+                    <motion.div
+                        initial={{opacity: 0, y: 10}}
+                        animate={{opacity: 1, y: 0}}
+                        transition={{duration: 0.5}}
+                        className="mt-5 pt-3 border-t border-gray-200"
+                    >
+                        {/* Заголовок с пояснением */}
+                        {/*<div className="mb-2 p-2 bg-gray-50 rounded-lg">*/}
+                        <div className="text-xs text-gray-600 text-center">
+                            <span className="font-medium">Лимиты компании:</span>
+                            <span> до {storageInfo.quota_count_images} изображений • {formatSize(storageInfo.quota_storage_size)} всего</span>
+                        </div>
+                        {/*</div>*/}
+
+                        <div className="flex items-center justify-between space-x-4">
+                            {/* Левая часть - количество изображений */}
+                            <div className="flex items-center space-x-3 flex-1">
+                                <div className="flex items-center space-x-2 min-w-[85px]">
+          <span className="text-amber-600" title="Количество файлов">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd"
+                    d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                    clipRule="evenodd"/>
+            </svg>
+          </span>
+                                    <span className="text-sm font-medium">
+            {storageInfo.used_count || 0}/{storageInfo.quota_count_images}
+          </span>
+                                </div>
+                                <div
+                                    className="flex-1 bg-gray-200 rounded-full h-2 max-w-[140px]"> {/* Добавил max-w-[140px] */}
+                                    <div
+                                        className="bg-amber-500 h-2 rounded-full transition-all duration-300"
+                                        style={{
+                                            width: `${Math.min(((storageInfo.used_count || 0) / storageInfo.quota_count_images) * 100, 100)}%`,
+                                            backgroundColor: ((storageInfo.used_count || 0) / storageInfo.quota_count_images) > 0.9 ? '#ef4444' : '#f59e0b'
+                                        }}
+                                    ></div>
+                                </div>
+                            </div>
+
+                            {/* Правая часть - объем памяти */}
+                            <div className="flex items-center space-x-3 flex-1 justify-end">
+                                <div className="flex items-center space-x-2 min-w-[90px]">
+          <span className="text-blue-600" title="Объем памяти">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z"/>
+              <path fillRule="evenodd"
+                    d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"
+                    clipRule="evenodd"/>
+            </svg>
+          </span>
+                                    <span className="text-sm font-medium">
+            {formatSize(storageInfo.used_size || 0)}/{formatSize(storageInfo.quota_storage_size || 0)}
+          </span>
+                                </div>
+                                <div
+                                    className="flex-1 bg-gray-200 rounded-full h-2 max-w-[140px]"> {/* Такое же max-w-[140px] */}
+                                    <div
+                                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                        style={{
+                                            width: `${Math.min(((storageInfo.used_size || 0) / storageInfo.quota_storage_size) * 100, 100)}%`,
+                                            backgroundColor: ((storageInfo.used_size || 0) / storageInfo.quota_storage_size) > 0.9 ? '#ef4444' : '#3b82f6'
+                                        }}
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
             </motion.div>
 
             {/* Модальное окно загрузки */}
@@ -2223,7 +2326,6 @@ const ImagesPage: React.FC = () => {
                     </div>
                 </div>
             )}
-
 
             {/* Модальное окно просмотра изображения */}
             {viewImage && (
