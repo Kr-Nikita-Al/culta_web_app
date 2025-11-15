@@ -147,12 +147,24 @@ const ProfilePage: React.FC = () => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto p-6">
-            <h1 className="text-3xl font-bold text-coffee-dark mb-8">Ваш профиль</h1>
+        <div className="max-w-6xl mx-auto p-6">
+            <motion.h1
+                initial={{opacity: 0, y: -10}}
+                animate={{opacity: 1, y: 0}}
+                transition={{duration: 0.4}}
+                className="text-3xl font-bold text-coffee-dark mb-8"
+            >
+                Ваш профиль
+            </motion.h1>
 
             {/* Информация о пользователе */}
             {userInfo && (
-                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <motion.div
+                    initial={{opacity: 0, y: 10, scale: 0.98}}
+                    animate={{opacity: 1, y: 0, scale: 1}}
+                    transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
+                    className="bg-white rounded-xl shadow-lg p-6 mb-6"
+                >
                     <h2 className="text-xl font-semibold text-amber-800 mb-4">Личная информация</h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -203,7 +215,7 @@ const ProfilePage: React.FC = () => {
                                 <p className="font-medium text-coffee-dark">
                                     {
                                         selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
-                                        ? 'Супер администратор'
+                                            ? 'Супер администратор'
                                             : selectedRole.role === 'PORTAL_ROLE_USER'
                                                 ? 'Пользователь'
                                                 : `${getRoleName(selectedRole.role)} в ${selectedCompany ? selectedCompany.company_name : 'Неизвестная компания'}`
@@ -212,7 +224,7 @@ const ProfilePage: React.FC = () => {
                             </div>
                         )}
                     </div>
-                </div>
+                </motion.div>
             )}
         </div>
     );

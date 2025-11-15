@@ -51,7 +51,12 @@ const CreateCompanyForm: React.FC = () => {
             );
 
             if (response) {
-                addNotification('Компания успешно создана', 'success');
+                const companyId = response.data.company_id;
+                // Показываем уведомление с ID компании
+                addNotification(
+                    `Компания "${formData.company_name}" успешно создана! ID: ${companyId}`,
+                    'success'
+                );
                 setFormData({
                     company_name: '',
                     address: '',

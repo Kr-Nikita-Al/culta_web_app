@@ -79,3 +79,63 @@ body {
   background-color: #0088cc;
   color: white;
 }
+
+.scroll-container {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #d9d0ca #f6b263;
+}
+
+.scroll-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.scroll-container::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.scroll-container::-webkit-scrollbar-thumb {
+  background-color: #d97706;
+  border-radius: 4px;
+}
+
+@media (max-width: 640px) {
+  .image-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .image-container {
+    width: 6rem;
+    height: 6rem;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  .image-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .image-container {
+    width: 7rem;
+    height: 7rem;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .image-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .image-container {
+    width: 8rem;
+    height: 8rem;
+  }
+}
+
+@media (min-width: 1025px) {
+  .image-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .image-container {
+    width: 9rem;
+    height: 9rem;
+  }
+}
