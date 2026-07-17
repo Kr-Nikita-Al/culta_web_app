@@ -12,6 +12,7 @@ COPY package.json package-lock.json ./
 # Чистая установка зависимостей с автоматической коррекцией lock-файла
 RUN npm ci --no-cache --update-notifier=false || \
     (echo "Попытка восстановления..." && npm install --force)
+
 # Копируем исходный код
 COPY . .
 
@@ -37,9 +38,8 @@ COPY --from=builder /app/build /usr/share/nginx/html
 # Копируем конфиг Nginx
 COPY nginx.conf /etc/nginx/conf.d/
 
-# Открываем порт 3000
-EXPOSE 3000
+# Открываем порт 80 (стандартный для Nginx)
+EXPOSE 80
 
 # Запускаем Nginx
 CMD ["nginx", "-g", "daemon off;"]
-
