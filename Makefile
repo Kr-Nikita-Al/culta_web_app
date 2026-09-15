@@ -1,14 +1,14 @@
-# Makefile для управления Docker-контейнером
+# Makefile для управления Docker-контейнером фронтенда
 
 # Переменные
 IMAGE_NAME = cafe-staff-frontend
-CONTAINER_NAME = cafe-staff-container
-PORT = 3000
-HOST_IP = 193.106.174.216
+CONTAINER_NAME = cafe-staff-frontend
+PORT = 80
+HOST_IP = 84.201.185.28
 API_URL = http://${HOST_IP}:8000
 ENV = production
 
-.PHONY: build run stop clean
+.PHONY: build run stop clean deploy logs check-files status restart
 
 # Собрать Docker-образ
 build:
@@ -21,7 +21,8 @@ build:
 run:
 	docker run -d \
 		--name ${CONTAINER_NAME} \
-		-p ${HOST_IP}:${PORT}:3000 \
+		-p ${PORT}:80 \
+		--restart unless-stopped \
 		${IMAGE_NAME}
 
 # Остановить и удалить контейнер
@@ -43,3 +44,10 @@ logs:
 # Проверка файлов в контейнере
 check-files:
 	docker exec -it ${CONTAINER_NAME} ls -la /usr/share/nginx/html
+
+# Проверка статуса контейнера
+status:
+	docker ps -a | grep ${CONTAINER_NAME} || echo "Container not found"
+
+# Перезапуск
+restart: stop run

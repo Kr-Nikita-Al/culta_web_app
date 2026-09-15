@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef, useCallback, useMemo, cache} from 'react';
+import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
