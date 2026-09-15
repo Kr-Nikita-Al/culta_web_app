@@ -6,13 +6,13 @@ import { Company } from '../types/authTypes';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useCompanies } from '../context/CompaniesContext';
 import LoadingSpinner from '../components/LoadingSpinner';
-import successImage from '../assets/success.svg';
-import CreateCompanyForm from '../components/CreateCompanyForm';
-import api from '../services/api';
-import config from "../config";
-import axios from "axios";
-import { useNotifications } from '../context/NotificationContext';
+import { grantStaffPrivilege, revokeStaffPrivilege, ROLE_TYPES, ROLE_DISPLAY_NAMES } from '../services/roleService';
 import { motion } from 'framer-motion';
+import CreateCompanyForm from '../components/CreateCompanyForm';
+import { useNotifications } from '../context/NotificationContext';
+
+type StaffRole = 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK';
+
 
 const CompaniesPage: React.FC = () => {
     const [companyData, setCompanyData] = useState<Company | null>(null);
@@ -24,7 +24,7 @@ const CompaniesPage: React.FC = () => {
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [showSuccess, setShowSuccess] = useState(false);
     const [delegateAction, setDelegateAction] = useState<'grant' | 'revoke'>('grant');
-    const [delegateRole, setDelegateRole] = useState('');
+    const [selectedRoleForDelegate, setSelectedRoleForDelegate] = useState<keyof typeof ROLE_TYPES>('PORTAL_ROLE_ADMIN');
     const [delegateUserId, setDelegateUserId] = useState('');
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error' | 'info'>('idle');
     const [superAdminSelectedCompany, setSuperAdminSelectedCompany] = useState<string>('');
@@ -35,21 +35,19 @@ const CompaniesPage: React.FC = () => {
     const { callApi } = useApi();
     const { updateSelectedCompany } = useSelectedCompany();
     const [companyCache, setCompanyCache] = useState<Record<string, Company>>({});
-
+    const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+    const [selectedCompanyName, setSelectedCompanyName] = useState('');
     const isSuperAdmin = selectedRole?.role === 'PORTAL_ROLE_SUPER_ADMIN';
-
+    const [delegateRole, setDelegateRole] = useState<StaffRole>(() => {
+        // Устанавливаем начальную роль в зависимости от прав пользователя
+        if (isSuperAdmin) return 'PORTAL_ROLE_ADMIN';
+        if (selectedRole?.role === 'PORTAL_ROLE_ADMIN') return 'PORTAL_ROLE_ADMIN';
+        if (selectedRole?.role === 'PORTAL_ROLE_OWNER') return 'PORTAL_ROLE_ADMIN';
+        return 'PORTAL_ROLE_ADMIN';
+    });
     // Регулярные выражения для валидации
     const phoneRegex = /^(\+7|8)[0-9]{10}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    // Получаем название выбранной компании
-    const getCompanyName = () => {
-        if (!contextSelectedCompany) return 'Неизвестная компания';
-
-        const company = companies.find(c => c.company_id === contextSelectedCompany);
-        return company?.company_name || 'Неизвестная компания';
-    };
-
 
     // Загрузка данных компании при изменении выбранной компании
     useEffect(() => {
@@ -217,6 +215,39 @@ const CompaniesPage: React.FC = () => {
         }
     };
 
+    const getAvailableRoles = () => {
+        if (isSuperAdmin) {
+            return ['PORTAL_ROLE_OWNER', 'PORTAL_ROLE_ADMIN'] as StaffRole[];
+        } else if (selectedRole?.role === 'PORTAL_ROLE_ADMIN') {
+            // Админ может только выдавать права, но не отзывать админские
+            if (delegateAction === 'revoke') {
+                return ['PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+            } else {
+                return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+            }
+        } else if (selectedRole?.role === 'PORTAL_ROLE_OWNER') {
+            return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+        }
+        return [] as StaffRole[];
+    };
+
+    // Определим, может ли пользователь отзывать права
+    const canRevokeRole = (role: StaffRole): boolean => {
+        if (isSuperAdmin) return true; // Суперадмин может все
+
+        if (selectedRole?.role === 'PORTAL_ROLE_OWNER') {
+            // Владелец может отозвать любые роли, кроме своей
+            return role !== 'PORTAL_ROLE_OWNER';
+        }
+
+        if (selectedRole?.role === 'PORTAL_ROLE_ADMIN') {
+            // Админ может отозвать только не-админские роли
+            return role !== 'PORTAL_ROLE_ADMIN' && role !== 'PORTAL_ROLE_OWNER';
+        }
+
+        return false;
+    };
+
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             // Ctrl+Enter или Cmd+Enter - сохранить
@@ -233,67 +264,19 @@ const CompaniesPage: React.FC = () => {
         }
     }, [handleSave, resetEditingState]);
 
-    const grantAdminPrivilege = async (userId: string, companyId: string) => {
-        const response = await axios.post(
-            `${config.apiBaseUrl}/user_role/grant_admin_privilege?promo_user_id=${userId}&company_id=${companyId}`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        return response.data;
-    };
-
-    const revokeAdminPrivilege = async (userId: string, companyId: string) => {
-        const response = await axios.post(
-            `${config.apiBaseUrl}/user_role/revoke_admin_privilege?demo_user_id=${userId}&company_id=${companyId}`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        return response.data;
-    };
-
-    const grantModeratorPrivilege = async (userId: string, companyId: string) => {
-        const response = await axios.post(
-            `${config.apiBaseUrl}/user_role/grant_moderator_privilege?promo_user_id=${userId}&company_id=${companyId}`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        return response.data;
-    };
-
-    const revokeModeratorPrivilege = async (userId: string, companyId: string) => {
-        const response = await axios.post(
-            `${config.apiBaseUrl}/user_role/revoke_moderator_privilege?demo_user_id=${userId}&company_id=${companyId}`,
-            {},
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-        return response.data;
-    };
-
     const handleDelegateRights = async () => {
         const targetCompanyId = isSuperAdmin ? superAdminSelectedCompany : contextSelectedCompany;
 
         if (!targetCompanyId || !delegateRole || !delegateUserId) {
             setError('Заполните все поля');
+            addNotification('Заполните все поля', 'error');
+            return;
+        }
+
+        // Проверка прав на выполнение действия
+        if (delegateAction === 'revoke' && !canRevokeRole(delegateRole)) {
+            setError('У вас нет прав для отзыва этой роли');
+            addNotification('У вас нет прав для отзыва этой роли', 'error');
             return;
         }
 
@@ -301,40 +284,44 @@ const CompaniesPage: React.FC = () => {
 
         try {
             let response;
-            if (delegateAction === 'grant' && delegateRole === 'PORTAL_ROLE_ADMIN') {
-                response = await callApi(() => grantAdminPrivilege(delegateUserId, targetCompanyId));
-            } else if (delegateAction === 'revoke' && delegateRole === 'PORTAL_ROLE_ADMIN') {
-                response = await callApi(() => revokeAdminPrivilege(delegateUserId, targetCompanyId));
-            } else if (delegateAction === 'grant' && delegateRole === 'PORTAL_ROLE_MODERATOR') {
-                response = await callApi(() => grantModeratorPrivilege(delegateUserId, targetCompanyId));
-            } else if (delegateAction === 'revoke' && delegateRole === 'PORTAL_ROLE_MODERATOR') {
-                response = await callApi(() => revokeModeratorPrivilege(delegateUserId, targetCompanyId));
+            if (delegateAction === 'grant') {
+                response = await callApi(() => grantStaffPrivilege(token!, {
+                    promo_user_id: delegateUserId,
+                    company_id: targetCompanyId,
+                    role: delegateRole
+                }));
             } else {
-                // Остальная логика для других ролей
-                response = await callApi(() =>
-                    api.post('/role/delegate', {
-                        action: delegateAction,
-                        role: delegateRole,
-                        user_id: delegateUserId,
-                        company_id: targetCompanyId
-                    }, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    })
-                );
+                response = await callApi(() => revokeStaffPrivilege(token!, {
+                    demo_user_id: delegateUserId,
+                    company_id: targetCompanyId,
+                    role: delegateRole
+                }));
             }
 
             if (response) {
-                addNotification('Права доступа успешно обновлены', 'success');
+                const actionText = delegateAction === 'grant' ? 'выданы' : 'отозваны';
+                addNotification(`Права ${ROLE_DISPLAY_NAMES[delegateRole]} успешно ${actionText}`, 'success');
                 setDelegateUserId('');
-                setDelegateRole('');
             }
         } catch (error: any) {
             console.error('Ошибка делегирования прав:', error);
-            setError(error.response?.data?.detail || 'Ошибка при делегировании прав');
-            addNotification('Ошибка при делегировании прав', 'error');
+
+            let errorMessage = 'Ошибка при делегировании прав';
+
+            if (error.response?.status === 400) {
+                errorMessage = error.response?.data?.detail || 'Некорректный запрос';
+            } else if (error.response?.status === 403) {
+                errorMessage = 'Недостаточно прав для выполнения действия';
+            } else if (error.response?.status === 404) {
+                errorMessage = 'Пользователь или компания не найдены';
+            } else if (error.response?.status === 405) {
+                errorMessage = 'Метод не разрешен';
+            } else if (error.response?.status === 500) {
+                errorMessage = 'Внутренняя ошибка сервера';
+            }
+
+            setError(errorMessage);
+            addNotification(errorMessage, 'error');
         }
     };
 
@@ -612,78 +599,145 @@ const CompaniesPage: React.FC = () => {
             )}
 
             {/* Блок управления доступами для администраторов и суперадминов */}
-            {(isSuperAdmin || selectedRole?.role === 'PORTAL_ROLE_ADMIN') && (
+            {(isSuperAdmin || selectedRole?.role === 'PORTAL_ROLE_ADMIN' || selectedRole?.role === 'PORTAL_ROLE_OWNER') && (
                 <motion.div
                     initial={{opacity: 0, y: 10, scale: 0.98}}
                     animate={{opacity: 1, y: 0, scale: 1}}
                     transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
                     className="bg-white rounded-xl shadow-lg p-6"
                 >
-                    <h2 className="text-xl font-semibold text-amber-800 mb-4">Управление доступами</h2>
-
+                    <h2 className="text-xl font-semibold text-amber-800 mb-4">Управление доступом</h2>
+                    {/* Блок выбора компании только для суперадмина */}
                     {isSuperAdmin && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label className="block text-coffee-dark mb-2">Компания</label>
-                                <select
-                                    value={superAdminSelectedCompany}
-                                    onChange={(e) => setSuperAdminSelectedCompany(e.target.value)}
-                                    className="w-full p-2 border border-gray-300 rounded"
-                                >
-                                    <option value="">Выберите компанию</option>
-                                    {companies.map(company => (
-                                        <option key={company.company_id} value={company.company_id}>
-                                            {company.company_name}
-                                        </option>
-                                    ))}
-                                </select>
+                        <div className="mb-4">
+                            <label className="block text-gray-600 mb-2">Выберите компанию:</label>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={selectedCompanyName}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setSelectedCompanyName(value);
+                                        setShowCompanyDropdown(true);
+                                        // Сбрасываем ID если название изменилось
+                                        const foundCompany = companies.find(c =>
+                                            c.company_name.toLowerCase() === value.toLowerCase()
+                                        );
+                                        if (!foundCompany) {
+                                            setSuperAdminSelectedCompany('');
+                                        }
+                                    }}
+                                    onFocus={() => {
+                                        setShowCompanyDropdown(true);
+                                    }}
+                                    onBlur={() => {
+                                        setTimeout(() => setShowCompanyDropdown(false), 200);
+                                    }}
+                                    placeholder="Начните вводить название компании..."
+                                    className="w-full p-2 pl-3 pr-10 border border-gray-300 rounded"
+                                />
+
+                                {/* Кнопка очистки */}
+                                {selectedCompanyName && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedCompanyName('');
+                                            setSuperAdminSelectedCompany('');
+                                            setShowCompanyDropdown(false);
+                                        }}
+                                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                )}
+
+                                {/* Выпадающий список */}
+                                {showCompanyDropdown && companies.length > 0 && (
+                                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                        {companies
+                                            .filter(company => {
+                                                if (!selectedCompanyName) return true;
+                                                const searchTerm = selectedCompanyName.toLowerCase();
+                                                return company.company_name.toLowerCase().includes(searchTerm);
+                                            })
+                                            .map(company => (
+                                                <div
+                                                    key={company.company_id}
+                                                    onClick={() => {
+                                                        setSuperAdminSelectedCompany(company.company_id);
+                                                        setSelectedCompanyName(company.company_name);
+                                                        setShowCompanyDropdown(false);
+                                                    }}
+                                                    className="p-2 hover:bg-gray-100 cursor-pointer transition-colors"
+                                                >
+                                                    <div className="font-medium">{company.company_name}</div>
+                                                </div>
+                                            ))
+                                        }
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-coffee-dark mb-2">Действие</label>
+                            <label className="block text-gray-600 mb-2">Действие:</label>
                             <select
                                 value={delegateAction}
                                 onChange={(e) => setDelegateAction(e.target.value as 'grant' | 'revoke')}
                                 className="w-full p-2 border border-gray-300 rounded"
                             >
-                                <option value="grant">Выдать</option>
-                                <option value="revoke">Отозвать</option>
+                                <option value="grant">Выдать права</option>
+                                <option value="revoke">Забрать права</option>
                             </select>
                         </div>
-
                         <div>
-                            <label className="block text-coffee-dark mb-2">Роль</label>
+                            <label className="block text-gray-600 mb-2">Роль:</label>
                             <select
                                 value={delegateRole}
-                                onChange={(e) => setDelegateRole(e.target.value)}
-                                className="w-full p-2 border border-gray-300 rounded"
+                                onChange={(e) => setDelegateRole(e.target.value as StaffRole)}
+                                disabled={loading}
+                                className="w-full p-2 border border-gray-300 rounded disabled:bg-gray-100 disabled:cursor-not-allowed"
                             >
-                                <option value="">Выберите роль</option>
-                                <option value="PORTAL_ROLE_MODERATOR">Модератор</option>
-                                <option value="PORTAL_ROLE_ADMIN">Администратор</option>
+                                <option value="">-- Выберите роль --</option>
+                                {getAvailableRoles().map(role => (
+                                    <option
+                                        key={role}
+                                        value={role}
+                                        disabled={delegateAction === 'revoke' && !canRevokeRole(role)}
+                                    >
+                                        {ROLE_DISPLAY_NAMES[role]}
+                                        {delegateAction === 'revoke' && !canRevokeRole(role) ? ' (недоступно для отзыва)' : ''}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
-                        <div>
-                            <label className="block text-coffee-dark mb-2">ID пользователя</label>
+                        <div className="md:col-span-2">
+                            <label className="block text-gray-600 mb-2">ID пользователя:</label>
                             <input
                                 type="text"
                                 value={delegateUserId}
                                 onChange={(e) => setDelegateUserId(e.target.value)}
-                                className="w-full p-2 border border-gray-300 rounded"
                                 placeholder="Введите ID пользователя"
+                                className="w-full p-2 border border-gray-300 rounded"
                             />
                         </div>
 
-                        <div className="flex justify-end">
+                        <div className="md:col-span-2">
                             <button
                                 onClick={handleDelegateRights}
-                                className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-4 rounded disabled:opacity-50"
+                                disabled={!superAdminSelectedCompany || !delegateUserId || loading}
+                                className={`px-4 py-2 rounded-lg transition-colors ${
+                                    !superAdminSelectedCompany || !delegateUserId || loading
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        : 'bg-amber-600 text-white hover:bg-amber-700'
+                                }`}
                             >
-                                {'Применить'}
+                                {delegateAction === 'grant' ? 'Выдать права' : 'Забрать права'}
                             </button>
                         </div>
                     </div>
