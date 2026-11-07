@@ -1,5 +1,5 @@
 const defaultConfig = {
-    apiBaseUrl: 'http://193.106.174.216:8000',
+    apiBaseUrl: process.env.NODE_ENV === 'development' ? `${window.location.protocol}//${window.location.hostname}:8000` : '/api',
     debugMode: false,
     authTokenKey: 'authToken',
     companiesCacheKey: 'cachedCompanies',
@@ -28,8 +28,10 @@ const getRuntimeConfig = () => {
 
 const runtimeConfig = getRuntimeConfig();
 
-export default {
+const config = {
     ...defaultConfig,
-    apiBaseUrl: runtimeConfig.apiBaseUrl,
+    apiBaseUrl: new URL(runtimeConfig.apiBaseUrl, window.location.origin).href.replace(/\/$/, ''),
     debugMode: runtimeConfig.debugMode
 };
+
+export default config;

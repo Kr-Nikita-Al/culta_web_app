@@ -1,3 +1,4 @@
+import AdminStatisticsPage from './pages/AdminStatisticsPage';
 import React, { useState, useEffect, useMemo } from 'react';
 import {BrowserRouter as Router, Routes, Route, useLocation, Navigate, useNavigate} from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
@@ -9,6 +10,7 @@ import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
 import CompaniesPage from './pages/CompaniesPage';
+import CompanyModuleGate from './components/CompanyModuleGate';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import CompanySelector from './components/CompanySelector';
@@ -16,7 +18,11 @@ import { useAuth } from './context/AuthContext';
 import { useCompanies } from './context/CompaniesContext';
 import './index.css';
 import ImagesPage from './pages/ImagesPage';
+import OrdersPage from './pages/OrdersPage';
+import ReservationsPage from './pages/ReservationsPage';
 import { ImageCacheProvider } from './context/ImageCacheContext';
+import { defaultCompanyRole } from './utils/defaultCompanyRole';
+import ScreensPage from './pages/ScreensPage';
 
 const AppContent: React.FC = () => {
     const [activeTab, setActiveTab] = useState('profile');
@@ -27,6 +33,7 @@ const AppContent: React.FC = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const isSuperAdmin = roles?.some(role => role.role === 'PORTAL_ROLE_SUPER_ADMIN');
+    const automaticRole = useMemo(() => defaultCompanyRole(roles || []), [roles]);
 
     const companiesWithNames = useMemo(() => {
         if (!roles || !companies) return [];
@@ -54,6 +61,12 @@ const AppContent: React.FC = () => {
             setActiveTab('profile');
         } else if (location.pathname.includes('/profile/images')) {
             setActiveTab('images');
+        } else if (location.pathname.includes('/profile/orders')) {
+            setActiveTab('orders');
+        } else if (location.pathname.includes('/profile/reservations')) {
+            setActiveTab('reservations');
+        } else if (location.pathname.includes('/profile/screens')) {
+            setActiveTab('screens');
         }
     }, [location]);
 
@@ -73,10 +86,9 @@ const AppContent: React.FC = () => {
                 return;
             }
 
-            // ПРИОРИТЕТ 3: Если есть другие роли (админ, модератор) - показываем селектор
-            // (ничего не делаем, селектор покажется автоматически)
+            if (automaticRole) setSelectedCompany(automaticRole.company_id, automaticRole);
         }
-    }, [token, roles, selectedCompany, selectedRole, isCheckingRoles, isSuperAdmin, setSelectedCompany]);
+    }, [token, roles, selectedCompany, selectedRole, isCheckingRoles, isSuperAdmin, setSelectedCompany, automaticRole]);
 
     // Устанавливаем доступные компании
     useEffect(() => {
@@ -116,10 +128,17 @@ const AppContent: React.FC = () => {
             navigate('/profile/company');
         } else if (tab === 'images') {
             navigate('/profile/images');
+        } else if (tab === 'orders') {
+            navigate('/profile/orders');
+        } else if (tab === 'reservations') {
+            navigate('/profile/reservations');
+        } else if (tab === 'screens') {
+            navigate('/profile/screens');
         }
     };
 
     const shouldShowCompanySelector = token &&
+        !automaticRole &&
         availableCompanies.length > 0 &&
         !selectedCompany &&
         !selectedRole &&
@@ -133,12 +152,15 @@ const AppContent: React.FC = () => {
             if (shouldShowCompanySelector && location.pathname !== '/profile/selector') {
                 navigate('/profile/selector', { replace: true });
             }
+            else if (selectedRole && location.pathname === '/profile/selector') {
+                navigate('/profile/user_info', { replace: true });
+            }
             // Если у пользователя только одна роль (USER), перенаправляем на профиль
-            else if (hasOnlyUserRole && location.pathname !== '/profile/user_info') {
+            else if (hasOnlyUserRole && !['/profile/user_info', '/profile/orders', '/profile/reservations'].includes(location.pathname)) {
                 navigate('/profile/user_info', { replace: true });
             }
         }
-    }, [token, roles, isCheckingRoles, shouldShowCompanySelector, hasOnlyUserRole, location.pathname, navigate]);
+    }, [token, roles, isCheckingRoles, shouldShowCompanySelector, hasOnlyUserRole, selectedRole, location.pathname, navigate]);
 
 
     if (shouldShowCompanySelector && location.pathname !== '/profile/selector') {
@@ -172,11 +194,9 @@ const AppContent: React.FC = () => {
                         <Header/>
                         <div className="flex pt-16 min-h-screen">
                             <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
-                            <div className="flex-1 ml-6 mb-8">
-                                <main className="min-h-[calc(100vh-8rem)] ml-4">
+                                <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8">
                                     <ProfilePage />
                                 </main>
-                            </div>
                         </div>
                     </ProtectedRoute>
                 }/>
@@ -185,11 +205,9 @@ const AppContent: React.FC = () => {
                         <Header/>
                         <div className="flex pt-16 min-h-screen">
                             <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
-                            <div className="flex-1 ml-6 mb-8">
-                                <main className="min-h-[calc(100vh-8rem)] ml-4">
+                                <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8">
                                     <CompaniesPage />
                                 </main>
-                            </div>
                         </div>
                     </ProtectedRoute>
                 }/>
@@ -199,16 +217,34 @@ const AppContent: React.FC = () => {
                             <Header/>
                             <div className="flex pt-16 min-h-screen">
                                 <Sidebar activeTab={activeTab} onTabChange={handleTabChange}/>
-                                <div className="flex-1 ml-6 mb-8">
-                                    <main className="min-h-[calc(100vh-8rem)] ml-4">
-                                        <ImagesPage />
+                                    <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8">
+                                        <CompanyModuleGate module="images"><ImagesPage /></CompanyModuleGate>
                                     </main>
-                                </div>
                             </div>
                         </>
                     </ProtectedRoute>
                 }/>
+                <Route path="/profile/orders" element={
+                    <ProtectedRoute>
+                        <Header />
+                        <div className="flex pt-16 min-h-screen">
+                            <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
+                            <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8"><CompanyModuleGate module="orders"><OrdersPage /></CompanyModuleGate></main>
+                        </div>
+                    </ProtectedRoute>
+                } />
+                <Route path="/profile/statistics" element={<ProtectedRoute><Header/><div className="flex pt-16 min-h-screen"><Sidebar activeTab="statistics" onTabChange={handleTabChange}/><main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8"><AdminStatisticsPage/></main></div></ProtectedRoute>}/>
+                <Route path="/profile/screens" element={<ProtectedRoute><Header/><div className="flex pt-16 min-h-screen">
+                    <Sidebar activeTab={activeTab} onTabChange={handleTabChange}/>
+                    <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8"><ScreensPage/></main>
+                </div></ProtectedRoute>}/>
                 <Route path="*" element={<Navigate to="/profile/user_info" replace />} />
+                <Route path="/profile/reservations" element={
+                    <ProtectedRoute><Header /><div className="flex pt-16 min-h-screen">
+                        <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
+                        <main className="flex-1 min-w-0 min-h-[calc(100vh-8rem)] ml-10 mb-8"><CompanyModuleGate module="reservations"><ReservationsPage /></CompanyModuleGate></main>
+                    </div></ProtectedRoute>
+                } />
             </Routes>
         </div>
     );

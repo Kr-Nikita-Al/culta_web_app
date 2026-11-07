@@ -1,47 +1,51 @@
-import { useState, useRef, useCallback } from 'react';
+import {useState, useRef, useCallback, useEffect} from 'react';
 
 export const useApi = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
+    const requests = useRef(new Set<AbortController>());
+    const latest = useRef<AbortController | null>(null);
 
-    const callApi = useCallback(async <T,>(apiCall: () => Promise<T>): Promise<T | null> => {
-        // Создаем новый AbortController для каждого запроса
+    const cancelRequest = useCallback(() => {
+        requests.current.forEach(controller => controller.abort());
+        requests.current.clear();
+        latest.current = null;
+        setLoading(false);
+        setError(null);
+    }, []);
+
+    useEffect(() => {
+        const pending = requests.current;
+        return () => {
+            pending.forEach(controller => controller.abort());
+            pending.clear();
+        };
+    }, []);
+
+    const callApi = useCallback(async <T,>(
+        apiCall: (signal: AbortSignal) => Promise<T>
+    ): Promise<T | null> => {
         const controller = new AbortController();
-        abortControllerRef.current = controller;
-
+        requests.current.add(controller);
+        latest.current = controller;
         setLoading(true);
         setError(null);
-
         try {
-            return await apiCall();
+            const result = await apiCall(controller.signal);
+            return controller.signal.aborted ? null : result;
         } catch (err: any) {
-            // ИГНОРИРУЕМ ОШИБКИ ОТМЕНЫ ЗАПРОСА
-            if (err.name === 'AbortError') {
-                console.log('Запрос был отменен (это нормально в Strict Mode)');
-                return null;
+            if (controller.signal.aborted || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') return null;
+            if (latest.current === controller) {
+                setError(typeof err?.message === 'string' ? err.message : 'Произошла ошибка');
             }
-
-            // Логируем только реальные ошибки
-            console.error('API Error:', err);
-            setError(err.message || 'Произошла ошибка');
+            // Keep the nullable API for readers that explicitly handle a failed load.
+            // Mutations use their service directly so callers can handle HTTP errors.
             return null;
         } finally {
-            // Сбрасываем AbortController только если это текущий запрос
-            if (abortControllerRef.current === controller) {
-                abortControllerRef.current = null;
-            }
-            setLoading(false);
+            requests.current.delete(controller);
+            if (!controller.signal.aborted) setLoading(requests.current.size > 0);
         }
     }, []);
 
-    // Функция для отмены запросов (опционально)
-    const cancelRequest = useCallback(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
-        }
-    }, []);
-
-    return { callApi, loading, error, cancelRequest };
+    return {callApi, loading, error, cancelRequest};
 };

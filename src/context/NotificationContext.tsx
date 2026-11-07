@@ -1,15 +1,15 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, ReactNode } from 'react';
 import {AnimatePresence} from "framer-motion";
 import Notification from '../components/Notification';
 
-interface Notification {
+interface NotificationEntry {
     id: string;
     message: string;
     type: 'success' | 'error' | 'info';
 }
 
 interface NotificationContextType {
-    notifications: Notification[];
+    notifications: NotificationEntry[];
     addNotification: (message: string, type: 'success' | 'error' | 'info') => void;
     removeNotification: (id: string) => void;
 }
@@ -25,16 +25,17 @@ export const useNotifications = () => {
 };
 
 export const NotificationProvider: React.FC<{children: ReactNode}> = ({ children }) => {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [notifications, setNotifications] = useState<NotificationEntry[]>([]);
 
-    const addNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        const id = Date.now().toString();
+    const sequence = useRef(0);
+    const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+        const id = `notification-${++sequence.current}`;
         setNotifications(prev => [...prev, { id, message, type }]);
-    };
+    }, []);
 
-    const removeNotification = (id: string) => {
+    const removeNotification = useCallback((id: string) => {
         setNotifications(prev => prev.filter(notification => notification.id !== id));
-    };
+    }, []);
 
     return (
         <NotificationContext.Provider value={{ notifications, addNotification, removeNotification }}>
@@ -47,7 +48,7 @@ export const NotificationContainer: React.FC = () => {
     const { notifications, removeNotification } = useNotifications();
 
     return (
-        <div className="fixed bottom-4 right-4 z-50 space-y-2">
+        <div className="fixed bottom-4 right-4 z-[200] space-y-2" aria-live="polite">
             <AnimatePresence>
                 {notifications.map(notification => (
                     <Notification

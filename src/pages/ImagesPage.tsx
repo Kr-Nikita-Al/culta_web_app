@@ -1,5 +1,6 @@
+import api from '../services/api';
 import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useApi } from '../hooks/useApi';
@@ -19,8 +20,15 @@ import {
 } from '../services/directoryService';
 import { useNotifications } from '../context/NotificationContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import FastImage from '../components/FastImage';
+import PendingStorageDeletions from '../components/PendingStorageDeletions';
+import PendingStorageMoves from '../components/PendingStorageMoves';
+import {moveImageBatch} from '../utils/moveImageBatch';
+import {useScopedOperation} from '../hooks/useScopedOperation';
+import {useLatestRequest} from '../hooks/useLatestRequest';
+import {deleteImageBatch} from '../utils/deleteImageBatch';
+import {imageSessionScope} from '../utils/imageSessionScope';
 import FolderTree from "../components/FolderTree";
-import config from "../config";
 import {useImageCache} from "../context/ImageCacheContext";
 import { handleImageError, withErrorHandling, ApiError } from '../utils/errorHandler';
 
@@ -119,148 +127,23 @@ const BeautifulLoader = ({ text = "Загрузка изображений..." }
     );
 };
 
-const FastImage: React.FC<{
-    imageData: Image;
-    className?: string;
-    onLoad?: () => void;
-    onError?: () => void;
-}> = ({ imageData, className, onLoad, onError }) => {
-    const [isLoaded, setIsLoaded] = useState(false);
-    const [error, setError] = useState(false);
-    const [currentUrl, setCurrentUrl] = useState<string | null>(null);
-    const { getCachedImage, loadAndCacheImage } = useImageCache();
-    const mountedRef = useRef(true);
-    const loadingRef = useRef(false);
-
-    useEffect(() => {
-        return () => {
-            mountedRef.current = false;
-        };
-    }, []);
-
-    useEffect(() => {
-        const initializeImage = async () => {
-            if (!imageData.url || loadingRef.current) return;
-
-            loadingRef.current = true;
-            const imageId = imageData.image_id;
-
-            try {
-                // 1. СНАЧАЛА проверяем кеш - может blob уже есть
-                const cached = getCachedImage(imageId);
-
-                if (cached) {
-                    // 2. Если есть в кеше (blob или оригинальный) - используем сразу
-                    console.log(`📷 ${imageId}: используем кешированный URL (${cached.isBlob ? 'BLOB' : 'ORIGINAL'})`);
-                    if (mountedRef.current) {
-                        setCurrentUrl(cached.url);
-                    }
-
-                    // 3. Если это оригинальный URL (не blob) - запускаем фоновую конвертацию в blob
-                    if (!cached.isBlob && imageData.url) {
-                        console.log(`🔄 ${imageId}: запускаем фоновую конвертацию в BLOB`);
-                        loadAndCacheImage(imageData, imageData.url)
-                            .then(blobUrl => {
-                                if (blobUrl && mountedRef.current) {
-                                    console.log(`✅ ${imageId}: BLOB создан в фоне, обновляем`);
-                                    setCurrentUrl(blobUrl);
-                                }
-                            })
-                            .catch(err => {
-                                console.warn(`⚠️ ${imageId}: фоновая конвертация не удалась:`, err);
-                            });
-                    }
-                } else {
-                    // 4. Если нет в кеше - СРАЗУ загружаем blob
-                    console.log(`📥 ${imageId}: нет в кеше, загружаем BLOB`);
-                    const blobUrl = await loadAndCacheImage(imageData, imageData.url);
-
-                    if (blobUrl && mountedRef.current) {
-                        console.log(`✅ ${imageId}: BLOB загружен`);
-                        setCurrentUrl(blobUrl);
-                    } else if (mountedRef.current && imageData.url) {
-                        // Fallback: если blob не загрузился, используем оригинальный URL
-                        console.log(`🔄 ${imageId}: используем оригинальный URL как fallback`);
-                        setCurrentUrl(imageData.url);
-                    }
-                }
-            } catch (error) {
-                console.error(`❌ ${imageId}: ошибка инициализации:`, error);
-                // Fallback на оригинальный URL при любой ошибке
-                if (mountedRef.current && imageData.url) {
-                    setCurrentUrl(imageData.url);
-                }
-            } finally {
-                loadingRef.current = false;
-            }
-        };
-
-        initializeImage();
-    }, [imageData, getCachedImage, loadAndCacheImage]);
-
-    const handleLoad = () => {
-        if (mountedRef.current) {
-            setIsLoaded(true);
-            onLoad?.();
-        }
-    };
-
-    const handleError = () => {
-        if (mountedRef.current) {
-            console.warn(`Ошибка загрузки изображения ${imageData.image_id}`);
-            setError(true);
-            onError?.();
-        }
-    };
-
-    if (error || !currentUrl) {
-        return (
-            <div className={`flex items-center justify-center bg-gray-100 text-gray-400 ${className}`}>
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-            </div>
-        );
-    }
-
-    return (
-        <div className={`relative ${className}`}>
-            {!isLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                    <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-            )}
-            {currentUrl && (
-                <img
-                    src={currentUrl}
-                    alt={imageData.title || imageData.file_name}
-                    className={`w-full h-full object-cover transition-opacity duration-300 ${
-                        isLoaded ? 'opacity-100' : 'opacity-0'
-                    }`}
-                    onLoad={handleLoad}
-                    onError={handleError}
-                    loading="lazy"
-                />
-            )}
-        </div>
-    );
-};
 
 const ImagesPage: React.FC = () => {
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(true);
+    const [deletionRevision, setDeletionRevision] = useState(0);
     const [uploading, setUploading] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
-    const [viewImage, setViewImage] = useState<{url: string, title: string, isLoaded?: boolean} | null>(null);
+    const [viewImage, setViewImage] = useState<{url?: string, title: string, image_id: string} | null>(null);
     const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
-    const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [editingItem, setEditingItem] = useState<{ type: 'folder' | 'image', id: string, name: string } | null>(null);
     const [editName, setEditName] = useState('');
     const [showMoveModal, setShowMoveModal] = useState(false);
-    const [moving, setMoving] = useState(false);
+    const [moveRevision, setMoveRevision] = useState(0);
     const [selectedTargetFolder, setSelectedTargetFolder] = useState('');
     const [folderStructure, setFolderStructure] = useState<FolderNode | null>(null);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -269,9 +152,10 @@ const ImagesPage: React.FC = () => {
     const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
     const [fullFolderStructure, setFullFolderStructure] = useState<{ [key: string]: number }>({});
     const [contentLoading, setContentLoading] = useState(false);
-    const [cacheUpdateTrigger, setCacheUpdateTrigger] = useState(0);
     const [renamingFolders, setRenamingFolders] = useState<Set<string>>(new Set());
 
+    const [storageError, setStorageError] = useState(false);
+    const [storageLoading, setStorageLoading] = useState(false);
     const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
     const { selectedCompany } = useSelectedCompany();
     const basePath = `company_images/company_${selectedCompany}/`;
@@ -279,7 +163,43 @@ const ImagesPage: React.FC = () => {
     const [pathHistory, setPathHistory] = useState<string[]>([]);
     const [imagesLoadError, setImagesLoadError] = useState<string | null>(null);
     const [foldersLoadError, setFoldersLoadError] = useState<string | null>(null);
-    const { token } = useAuth();
+    const { token, userId } = useAuth();
+    const sessionScope = imageSessionScope(userId, token);
+    const folderDeletion = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const imageDeletion = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const folderCreation = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const imageDownload = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const imageRename = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const folderRename = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const imageMove = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const moving = imageMove.busy;
+    const imageUpload = useScopedOperation(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    useEffect(() => {setRenamingFolders(new Set());}, [selectedCompany, sessionScope, currentPath]);
+    useEffect(() => {
+        setUploading(false);
+        setShowUploadModal(false);
+        setUploadingFiles([]);
+        setUploadProgress({});
+        setSelectedFiles([]);
+    }, [selectedCompany, sessionScope, currentPath]);
+    useEffect(() => {
+        setSelectedImages([]);
+        setIsSelectionMode(false);
+        setViewImage(null);
+        setEditingItem(null);
+        setEditName('');
+        setShowCreateFolderModal(false);
+        setNewFolderName('');
+        setShowMoveModal(false);
+        setSelectedTargetFolder('');
+        setIsDragging(false);
+        return () => {
+            if (longPressTimer.current !== null) clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        };
+    }, [selectedCompany, sessionScope, currentPath]);
+    const beginFolderRequest = useLatestRequest(`${selectedCompany}:${sessionScope}:${currentPath}`);
+    const beginImagesRequest = useLatestRequest(`${selectedCompany}:${sessionScope}:${currentPath}`);
     const { callApi } = useApi();
     const { addNotification } = useNotifications();
 
@@ -294,63 +214,62 @@ const ImagesPage: React.FC = () => {
         getCachedImage,
         getCachedFolderStructure,
         setCachedFolderStructure,
-        getImageFromAnyFolder,
+        invalidateCachedFolderStructure,
         moveImageBetweenFolders,
-        invalidateFolderCache,
-        updateFolderCacheDirectly
+        invalidateFolderCache
     } = useImageCache();
 
+    const beginStorageRequest = useLatestRequest(`${selectedCompany}:${sessionScope}`);
+    useEffect(() => {
+        setStorageInfo(null);
+        setStorageError(false);
+    }, [selectedCompany, sessionScope]);
     const loadStorageLimits = useCallback(async () => {
         if (!token || !selectedCompany) return;
-
+        const isCurrent = beginStorageRequest();
+        setStorageLoading(true);
+        setStorageError(false);
         try {
-            const response = await callApi(() => getStorageInfo(token, selectedCompany));
-            if (response) {
-                setStorageInfo(response);
-            }
-        } catch (error) {
-            console.error('Ошибка загрузки лимитов хранилища:', error);
+            const response = await getStorageInfo(token, selectedCompany);
+            if (isCurrent()) setStorageInfo(response);
+        } catch {
+            if (isCurrent()) setStorageError(true);
+        } finally {
+            if (isCurrent()) setStorageLoading(false);
         }
-    }, [token, selectedCompany, callApi]);
+    }, [token, selectedCompany, beginStorageRequest]);
+    useEffect(() => {void loadStorageLimits();}, [loadStorageLimits]);
 
-    // Загружаем лимиты при изменении компании
-    useEffect(() => {
-        if (selectedCompany) {
-            loadStorageLimits();
-        }
-    }, [selectedCompany, loadStorageLimits]);
-
-    // Обновите useMemo для images с зависимостью от cacheUpdateTrigger:
     const images = useMemo(() => {
         const folderImages = getCurrentFolderImages(currentPath);
         return folderImages || []; // ГАРАНТИРУЕМ ЧТО ВСЕГДА ВОЗВРАЩАЕМ МАССИВ
-    }, [currentPath, getCurrentFolderImages, cacheUpdateTrigger]);
+    }, [currentPath, getCurrentFolderImages]);
 
     // Загрузка полной структуры папок при инициализации
     const loadFullFolderStructure = async (forceRefresh = false) => {
         if (!token || !selectedCompany) return;
+        const isCurrent = beginFolderRequest();
 
         // Сохраняем текущее состояние перед обновлением
         const currentFolders = [...folders];
 
         try {
-            if (forceRefresh && selectedCompany) {
-                setCachedFolderStructure(selectedCompany, {});
-            }
-
             setFoldersLoadError(null); // Сбрасываем ошибку перед загрузкой
 
-            const response = await callApi(() => getDirectoryObjects(token, selectedCompany));
+            const response = await callApi(signal => getDirectoryObjects(token, selectedCompany, signal));
+            if (!isCurrent()) return false;
 
             // ПРОВЕРЯЕМ ЧТО ЗАПРОС НЕ БЫЛ ОТМЕНЕН И ЕСТЬ ДАННЫЕ
             if (response === null) {
-                console.log('📝 Запрос структуры папок был отменен');
+                setFoldersLoadError('Не удалось загрузить структуру папок. Попробуйте ещё раз.');
                 return false;
             }
 
             if (!response || Object.keys(response).length === 0) {
                 console.log('📝 Структура папок пустая');
                 setFolders([]);
+                setFullFolderStructure({});
+                setCachedFolderStructure(selectedCompany, {});
                 return true;
             }
 
@@ -358,12 +277,13 @@ const ImagesPage: React.FC = () => {
             setCachedFolderStructure(selectedCompany, response);
 
             // Используем preserveExisting: true чтобы минимизировать мерцание
-            processDirectoryObjects(response, currentPath, true);
+            processDirectoryObjects(response, currentPath, !forceRefresh);
 
             return true;
 
         } catch (error) {
             console.error('Ошибка загрузки структуры папок:', error);
+            if (!isCurrent()) return false;
             setFoldersLoadError('Не удалось загрузить структуру папок. Проверьте подключение к интернету.');
             // Восстанавливаем предыдущее состояние при ошибке
             setFolders(currentFolders);
@@ -390,52 +310,39 @@ const ImagesPage: React.FC = () => {
             return;
         }
 
-        const folderList: Folder[] = preserveExisting ? [...folders] : [];
-        const processedPaths = new Set<string>(preserveExisting ? folders.map(f => f.path) : []);
+        setFolders(previous => {
+            const folderList: Folder[] = preserveExisting ? [...previous] : [];
+            const processedPaths = new Set<string>(preserveExisting ? previous.map(f => f.path) : []);
 
-        console.log(`🔍 Обработка объектов для пути: ${targetPath}`, objects);
+            console.log(`🔍 Обработка объектов для пути: ${targetPath}`, objects);
 
-        Object.entries(objects).forEach(([path, size]) => {
-            if (!path.endsWith('/')) return;
-            if (!path.startsWith(targetPath)) return;
+            Object.entries(objects).forEach(([path, size]) => {
+                if (!path.endsWith('/')) return;
+                if (!path.startsWith(targetPath)) return;
 
-            const relativePath = path.substring(targetPath.length);
-            const parts = relativePath.split('/').filter(part => part !== '');
+                const relativePath = path.substring(targetPath.length);
+                const parts = relativePath.split('/').filter(part => part !== '');
 
-            if (parts.length === 1) {
-                const folderName = parts[0];
-                const fullFolderPath = targetPath + folderName + '/';
+                if (parts.length === 1) {
+                    const folderName = parts[0];
+                    const fullFolderPath = targetPath + folderName + '/';
 
-                if (!processedPaths.has(fullFolderPath)) {
-                    folderList.push({
-                        id: fullFolderPath,
-                        name: folderName,
-                        path: fullFolderPath,
-                        isDirectory: true
-                    });
-                    processedPaths.add(fullFolderPath);
+                    if (!processedPaths.has(fullFolderPath)) {
+                        folderList.push({
+                            id: fullFolderPath,
+                            name: folderName,
+                            path: fullFolderPath,
+                            isDirectory: true
+                        });
+                        processedPaths.add(fullFolderPath);
+                    }
                 }
-            }
+            });
+
+            console.log(`📁 Найдено папок для ${targetPath}:`, folderList.length);
+            return folderList.sort((a, b) => a.name.localeCompare(b.name));
         });
-
-        console.log(`📁 Найдено папок для ${targetPath}:`, folderList.length);
-        setFolders(folderList.sort((a, b) => a.name.localeCompare(b.name)));
-    }, [folders]); // Добавляем folders в зависимости
-
-    const getExpectedImageCountFromStructure = useCallback((folderPath: string): number => {
-        if (!fullFolderStructure) return -1; // -1 означает "неизвестно"
-
-        let count = 0;
-        Object.entries(fullFolderStructure).forEach(([path]) => {
-            // Считаем только файлы (не папки) в указанной папке
-            if (!path.endsWith('/') && path.startsWith(folderPath)) {
-                count++;
-            }
-        });
-
-        console.log(`📈 Ожидаемое количество изображений в ${folderPath}: ${count}`);
-        return count;
-    }, [fullFolderStructure]);
+    }, []);
 
     const areFolderImagesCached = useCallback((folderPath: string): boolean => {
         if (!selectedCompany) return false;
@@ -475,15 +382,14 @@ const ImagesPage: React.FC = () => {
     }, [selectedCompany, folderCache]);
 
     // Загрузка данных папки (только изображения)
-    const loadFolderData = useCallback(async () => {
+    const loadFolderData = useCallback(async (forceRefresh = false) => {
         if (!token || !selectedCompany || !currentPath) return;
-
-        const folderKey = `${selectedCompany}_${currentPath}`;
+        const isCurrent = beginImagesRequest();
 
         // Проверяем, закеширована ли папка и не требует перезагрузки
         const isCached = areFolderImagesCached(currentPath);
 
-        if (isCached) {
+        if (isCached && !forceRefresh) {
             console.log(`✅ Папка ${currentPath} закеширована, пропускаем запрос к серверу`);
             setContentLoading(false);
             setLoading(false);
@@ -493,7 +399,7 @@ const ImagesPage: React.FC = () => {
             const folderImages = getCurrentFolderImages(currentPath);
             if (folderImages.length > 0) {
                 setTimeout(() => {
-                    refreshExistingBlobs(folderImages);
+                    if (isCurrent()) refreshExistingBlobs(folderImages);
                 }, 1000);
             }
             return;
@@ -504,21 +410,26 @@ const ImagesPage: React.FC = () => {
         setImagesLoadError(null);
 
         try {
-            await loadFolderImages(selectedCompany, currentPath, false);
+            await loadFolderImages(selectedCompany, currentPath, false, forceRefresh);
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Ошибка загрузки данных папки:', error);
             setImagesLoadError('Не удалось загрузить изображения. Проверьте подключение к интернету.');
             addNotification('Ошибка загрузки изображений', 'error');
         } finally {
-            setContentLoading(false);
-            setLoading(false);
+            if (isCurrent()) {
+                setContentLoading(false);
+                setLoading(false);
+            }
         }
-    }, [token, selectedCompany, currentPath, areFolderImagesCached, getCurrentFolderImages, refreshExistingBlobs, loadFolderImages]);
+    }, [token, selectedCompany, currentPath, areFolderImagesCached, getCurrentFolderImages, refreshExistingBlobs, loadFolderImages, addNotification, beginImagesRequest]);
 
-    // Загружаем данные ТОЛЬКО при изменении пути
+    // Cache updates change the callback, but must not trigger another read.
+    const folderLoader=useRef(loadFolderData);
+    folderLoader.current=loadFolderData;
     useEffect(() => {
-        loadFolderData();
-    }, [currentPath, selectedCompany]);
+        void folderLoader.current();
+    }, [currentPath, selectedCompany, token, sessionScope]);
 
     useEffect(() => {
         if (fullFolderStructure && currentPath) {
@@ -562,23 +473,26 @@ const ImagesPage: React.FC = () => {
     }, [currentPath, fullFolderStructure]);
 
     useEffect(() => {
+        let active = true;
+        const isLatest = beginFolderRequest();
         const loadFolderStructure = async () => {
             if (!token || !selectedCompany) return;
 
             const cachedStructure = getCachedFolderStructure(selectedCompany);
 
-            if (cachedStructure && Object.keys(cachedStructure).length > 0) {
+            if (cachedStructure !== null) {
                 console.log('📂 Используем кешированную структуру папок');
                 setFullFolderStructure(cachedStructure);
-                processDirectoryObjects(cachedStructure, currentPath, true);
+                processDirectoryObjects(cachedStructure, currentPath, false);
                 setFoldersLoadError(null);
             } else {
                 console.log('🔄 Загружаем структуру папок с сервера');
                 try {
-                    const response = await callApi(() => getDirectoryObjects(token, selectedCompany));
+                    const response = await callApi(signal => getDirectoryObjects(token, selectedCompany, signal));
+                    if (!active || !isLatest()) return;
 
                     if (response === null) {
-                        // Запрос был отменен - это нормально
+                        setFoldersLoadError('Не удалось загрузить структуру папок. Попробуйте ещё раз.');
                         return;
                     }
 
@@ -592,6 +506,7 @@ const ImagesPage: React.FC = () => {
                         setFoldersLoadError('Не удалось загрузить структуру папок');
                     }
                 } catch (error) {
+                    if (!active || !isLatest()) return;
                     console.error('Ошибка загрузки структуры папок:', error);
                     setFoldersLoadError('Не удалось загрузить структуру папок. Проверьте подключение к интернету.');
                 }
@@ -599,7 +514,8 @@ const ImagesPage: React.FC = () => {
         };
 
         loadFolderStructure();
-    }, [token, selectedCompany, currentPath]);
+        return () => {active = false;};
+    }, [token, selectedCompany, currentPath, beginFolderRequest, callApi, getCachedFolderStructure, processDirectoryObjects, setCachedFolderStructure]);
 
     useEffect(() => {
         // Даем время на предзагрузку перед показом изображений
@@ -623,13 +539,10 @@ const ImagesPage: React.FC = () => {
         if (isCached) {
             console.log(`✅ Используем кешированные данные для папки ${folderPath}`);
             setContentLoading(false);
-            // Триггерим обновление отображения
-            setCacheUpdateTrigger(prev => prev + 1);
         } else {
             console.log(`🔄 Загружаем данные для папки ${folderPath}`);
             setContentLoading(true);
-            // Вызываем loadFolderData только для незакешированных или неполных папок
-            loadFolderData();
+            // The path effect loads the selected folder after state updates.
         }
 
         if (fullFolderStructure) {
@@ -679,19 +592,33 @@ const ImagesPage: React.FC = () => {
         }
     };
 
+    const uniqueUploadFiles = (files: File[]) => {
+        const names = new Set<string>();
+        const unique = files.filter(file => {
+            if (names.has(file.name)) return false;
+            names.add(file.name);
+            return true;
+        });
+        if (unique.length < files.length)
+            addNotification('Файлы с одинаковыми именами добавлены один раз. Для разных изображений используйте разные имена.', 'info');
+        return unique;
+    };
+
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragging(false);
 
+        if (imageUpload.busy) return;
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             const files = Array.from(e.dataTransfer.files);
-            setSelectedFiles(prev => [...prev, ...files]);
+            setSelectedFiles(uniqueUploadFiles([...selectedFiles, ...files]));
             setShowUploadModal(true);
         }
     };
 
     const removeSelectedFile = (index: number) => {
+        if (imageUpload.busy) return;
         setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     };
 
@@ -720,7 +647,11 @@ const ImagesPage: React.FC = () => {
     // Загрузка изображений
     const handleUpload = async () => {
         if (!token || !selectedCompany || selectedFiles.length === 0) return;
+        const operation = imageUpload.begin();
+        if (!operation) return;
 
+        const completedFiles = new Set<File>();
+        try {
         setUploading(true);
         setUploadingFiles(selectedFiles);
         const uploadResults = [];
@@ -730,6 +661,7 @@ const ImagesPage: React.FC = () => {
         const currentImages = getCurrentFolderImages(currentPath);
 
         for (let i = 0; i < selectedFiles.length; i++) {
+            if (!operation.isCurrent()) break;
             const file = selectedFiles[i];
             try {
                 setUploadProgress(prev => ({ ...prev, [file.name]: 10 }));
@@ -740,12 +672,14 @@ const ImagesPage: React.FC = () => {
                 );
 
                 if (existingImage) {
+                    completedFiles.add(file);
                     addNotification(`Файл "${file.name}" уже существует, пропускаем`, 'info');
                     setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
                     continue;
                 }
 
                 const dimensions = await getImageDimensions(file);
+                if (!operation.isCurrent()) break;
                 const metadata = {
                     company_id: selectedCompany,
                     file_path: currentPath,
@@ -756,12 +690,15 @@ const ImagesPage: React.FC = () => {
                 setUploadProgress(prev => ({ ...prev, [file.name]: 50 }));
                 const result = await withErrorHandling(
                     () => uploadImage(token, file, metadata),
-                    addNotification,
+                    (message, type) => {if (operation.isCurrent()) addNotification(message, type);},
                     undefined // Не показываем успех для каждого файла отдельно
                 );
+                if (!operation.isCurrent()) break;
                 setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
 
                 if (result) {
+                    completedFiles.add(file);
+                    uploadResults.push({ file: file.name, success: true });
                     // НЕ создаем временный blob URL - это вызывает проблемы
                     const newImage: Image = {
                         ...result,
@@ -776,11 +713,10 @@ const ImagesPage: React.FC = () => {
 
                     // Получаем реальный URL с сервера сразу после загрузки
                     try {
-                        const imageWithUrl = await callApi(() => getImageById(token, result.image_id));
+                        const imageWithUrl = await callApi(signal => getImageById(token, result.image_id, signal));
+                        if (!operation.isCurrent()) break;
                         if (imageWithUrl && imageWithUrl.url) {
                             newImage.url = imageWithUrl.url;
-                            console.log(`✅ Получен URL для ${result.image_id}: ${imageWithUrl.url}`);
-                            uploadResults.push({ file: file.name, success: true });
                         }
                     } catch (error) {
                         console.error('Ошибка получения URL с сервера:', error);
@@ -788,6 +724,7 @@ const ImagesPage: React.FC = () => {
                 }
 
             } catch (error: any) {
+                if (!operation.isCurrent()) break;
                 console.error(`Ошибка загрузки изображения ${file.name}:`, error);
                 setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
 
@@ -795,7 +732,7 @@ const ImagesPage: React.FC = () => {
                 uploadResults.push({ file: file.name, success: false, error: error.message });
             }
         }
-        console.log('New', uploadResults)
+        if (!operation.isCurrent()) return;
         const successfulUploads = uploadResults.filter(r => r.success).length;
 
         if (successfulUploads > 0) {
@@ -808,280 +745,157 @@ const ImagesPage: React.FC = () => {
                 addImagesToCache(selectedCompany, currentPath, imagesWithUrls);
                 console.log(`✅ Добавлено ${imagesWithUrls.length} новых изображений в кеш папки ${currentPath}`);
             }
+            if (imagesWithUrls.length < successfulUploads) {
+                await loadFolderData(true);
+            }
         }
-
-        setUploading(false);
-        setShowUploadModal(false);
-
-        setTimeout(() => {
-            setUploadingFiles([]);
-            setUploadProgress({});
-            setSelectedFiles([]);
-        }, 100);
+        } catch {
+            if (operation.isCurrent()) addNotification('Не удалось обновить галерею после загрузки. Обновите список изображений.', 'error');
+        } finally {
+            if (operation.isCurrent()) {
+                setUploading(false);
+                setShowUploadModal(selectedFiles.some(file => !completedFiles.has(file)));
+                setUploadingFiles([]);
+                setUploadProgress({});
+                setSelectedFiles(files => files.filter(file => !completedFiles.has(file)));
+            }
+            operation.finish();
+        }
     };
 
     // Удаление изображения
     const handleDeleteImage = async (imageId: string) => {
         if (!token || !selectedCompany) return;
-
-        // Удаляем из кеша
-        removeImageFromCache(selectedCompany, currentPath, imageId);
-        setSelectedImages(prev => prev.filter(id => id !== imageId));
-
-        // В фоне удаляем на сервере
-        setTimeout(async () => {
-            try {
-                const result = await withErrorHandling(
-                    () => deleteImage(token, imageId),
-                    addNotification,
-                    'Изображение удалено'
-                );
-
-                if (result) {
-                    removeImageFromCache(selectedCompany, currentPath, imageId);
-                    loadStorageLimits();
-                    setSelectedImages(prev => prev.filter(id => id !== imageId));
-                }
-            } catch (error: any) {
-                console.error('Ошибка удаления изображения:', error);
-                handleImageError(error, addNotification);
-                // В случае ошибки перезагружаем данные
-                loadFolderData(); // УБРАТЬ true
-            }
-        }, 100);
+        const operation = imageDeletion.begin();
+        if (!operation) return;
+        try {
+            await deleteImage(token, imageId);
+            if (!operation.isCurrent()) return;
+            removeImageFromCache(selectedCompany, currentPath, imageId);
+            setSelectedImages(prev => prev.filter(id => id !== imageId));
+            addNotification('Изображение удалено', 'success');
+            void loadStorageLimits();
+        } catch (error) {
+            if (operation.isCurrent()) handleImageError(error as ApiError, addNotification);
+        } finally {operation.finish();}
     };
 
 
     // Удаление выбранных изображений
     const handleDeleteSelected = async () => {
-        if (!token || selectedImages.length === 0 || !selectedCompany) return; // Добавлена проверка
+        if (!token || selectedImages.length === 0 || !selectedCompany || imageDeletion.busy) return;
 
         if (!window.confirm(`Удалить ${selectedImages.length} изображений?`)) {
             return;
         }
 
-        let successCount = 0;
+        const operation = imageDeletion.begin();
+        if (!operation) return;
         try {
-            // Удаляем на сервере
-            for (const imageId of selectedImages) {
-                const result = await withErrorHandling(
-                    () => deleteImage(token, imageId),
-                    addNotification,
-                    undefined // Не показываем успех для каждого файла
-                );
-
-                if (result) {
-                    removeImageFromCache(selectedCompany, currentPath, imageId);
-                    successCount++;
-                }
-            }
-            if (successCount > 0) {
-                addNotification(`Удалено ${successCount} изображений`, 'success');
-                setSelectedImages([]);
-                setIsSelectionMode(false);
+            const deleted = await deleteImageBatch(selectedImages, {
+                isCurrent: operation.isCurrent,
+                remove: imageId => deleteImage(token, imageId),
+                onDeleted: imageId => removeImageFromCache(selectedCompany, currentPath, imageId),
+                onError: error => handleImageError(error as ApiError, addNotification)
+            });
+            if (operation.isCurrent() && deleted.size > 0) {
+                loadStorageLimits();
+                addNotification(`Удалено ${deleted.size} из ${selectedImages.length} изображений`, 'success');
+                setSelectedImages(prev => prev.filter(id => !deleted.has(id)));
+                if (deleted.size === selectedImages.length) setIsSelectionMode(false);
             }
 
         } catch (error: any) {
+            if (!operation.isCurrent()) return;
             console.error('Ошибка удаления изображений:', error);
             handleImageError(error, addNotification);
             // Перезагружаем данные при ошибке
-            loadFolderData();
-        }
+            void loadFolderData(true);
+        } finally {operation.finish();}
     };
 
 
-    // Скачивание изображения
-    const downloadImage = async (imageId: string, image: Image): Promise<boolean> => {
+    // Download only while the originating account and folder remain selected.
+    const downloadImage = async (image: Image, isCurrent: () => boolean): Promise<boolean> => {
+        if (!selectedCompany || !isCurrent()) return false;
+        const filename = image.file_name || `image_${image.image_id}.${getFileExtension(image)}`;
+        const response = await api.get('/image/download', {
+            params: {image_id: image.image_id, company_id: selectedCompany, filename},
+            responseType: 'blob', timeout: 45000
+        });
+        if (!isCurrent()) return false;
+        const blobUrl = URL.createObjectURL(response.data);
+        const link = document.createElement('a');
         try {
-            const imageUrl = image.url;
-            if (!imageUrl || !selectedCompany) {
-                console.error('URL изображения не найден или компания не выбрана');
-                return false;
-            }
-
-            const filename = image.file_name || `image_${image.image_id}.${getFileExtension(image)}`;
-
-            // Правильный endpoint согласно документации
-            const downloadEndpoint = `${config.apiBaseUrl}/image/download?image_url=${encodeURIComponent(imageUrl)}&company_id=${selectedCompany}&filename=${encodeURIComponent(filename)}`;
-
-            console.log('📥 Скачивание изображения:', downloadEndpoint);
-
-            // Создаем временную ссылку для скачивания
-            const response = await fetch(downloadEndpoint, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-
-            // Создаем ссылку для скачивания
-            const downloadLink = document.createElement('a');
-            downloadLink.href = blobUrl;
-            downloadLink.download = filename;
-            downloadLink.style.display = 'none';
-
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-
-            // Освобождаем blob URL
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-
-            console.log('✅ Изображение успешно скачано');
-            return true;
-
-        } catch (error) {
-            console.error('❌ Ошибка скачивания изображения:', error);
-
-            // Fallback: пробуем открыть в новой вкладке
-            if (image.url) {
-                window.open(image.url, '_blank');
-                addNotification('Изображение открыто в новой вкладке', 'info');
-            } else {
-                addNotification('Ошибка скачивания изображения', 'error');
-            }
-            return false;
+            link.href = blobUrl;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+        } finally {
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
         }
+        return true;
     };
 
-    const handleDownloadImage = async (imageId: string) => {
-        const image = images.find(img => img.image_id === imageId);
-        if (!image || !token) return;
-
+    const downloadImages = async (ids: string[]) => {
+        if (!token || !selectedCompany || !ids.length) return;
+        const operation = imageDownload.begin();
+        if (!operation) return;
+        let saved = 0;
+        const uniqueIds = Array.from(new Set(ids));
         try {
-            const success = await downloadImage(imageId, image);
-            if (success) {
-                addNotification('Изображение скачано', 'success');
-            } else {
-                addNotification('Изображение открыто в новой вкладке', 'info');
-            }
-        } catch (error) {
-            console.error('Ошибка скачивания изображения:', error);
-            addNotification('Ошибка скачивания изображения', 'error');
-        }
-    };
-
-    const handleDownloadSelected = async () => {
-        if (selectedImages.length === 0 || !token) return;
-
-        try {
-            for (const imageId of selectedImages) {
-                const image = images.find(img => img.image_id === imageId);
-                if (image) {
-                    await downloadImage(imageId, image);
-                    await new Promise(resolve => setTimeout(resolve, 100));
+            for (const id of uniqueIds) {
+                if (!operation.isCurrent()) break;
+                const image = images.find(item => item.image_id === id);
+                if (!image) continue;
+                try {if (await downloadImage(image, operation.isCurrent)) saved++;} catch {
+                    // Continue the remaining files; report the actual result below.
                 }
             }
-            addNotification(`Скачано ${selectedImages.length} изображений`, 'success');
-        } catch (error) {
-            console.error('Ошибка скачивания изображений:', error);
-            addNotification('Ошибка скачивания изображений', 'error');
-        }
+            if (!operation.isCurrent()) return;
+            if (saved > 0) addNotification(`Передано браузеру для скачивания: ${saved} из ${uniqueIds.length}`, 'success');
+            if (saved < uniqueIds.length) addNotification(`Не удалось скачать файлов: ${uniqueIds.length - saved}. Повторите попытку.`, 'error');
+        } finally {operation.finish();}
     };
+    const handleDownloadImage = (imageId: string) => downloadImages([imageId]);
+    const handleDownloadSelected = () => downloadImages(selectedImages);
 
     // Перенос изображений
     const handleMoveImages = async () => {
         if (!token || selectedImages.length === 0 || !selectedTargetFolder || !selectedCompany) return;
 
-        setMoving(true);
+        const operation = imageMove.begin();
+        if (!operation) return;
         try {
-            // 1. Сначала обновляем кеш
-            for (const imageId of selectedImages) {
-                const imageToMove = getImageFromAnyFolder(imageId);
-
-                if (imageToMove) {
-                    // Сохраняем blob из кеша перед перемещением
-                    const cachedImageBeforeMove = getCachedImage(imageId);
-
-                    // Обновляем кеш папок
-                    moveImageBetweenFolders(imageId, currentPath, selectedTargetFolder, selectedCompany);
-
-                    // Обновляем изображение в основном кеше с новым путем
-                    const updatedImage = {
-                        ...imageToMove,
-                        file_path: selectedTargetFolder,
-                        // Сохраняем blob URL если он был
-                        url: cachedImageBeforeMove?.isBlob ? cachedImageBeforeMove.url : imageToMove.url
-                    };
-
-                    updateImageInCache(selectedCompany, selectedTargetFolder, imageId, updatedImage);
-                    console.log(`✅ Изображение ${imageId} перемещено в кеше в ${selectedTargetFolder}`);
-                }
-            }
-
-            // 2. В фоне обновляем на сервере
-            let successCount = 0;
-            for (const imageId of selectedImages) {
-                const result = await withErrorHandling(
-                    () => updateImage(token, imageId, { file_path: selectedTargetFolder }),
-                    addNotification,
-                    undefined
-                );
-
-                if (result) {
-                    successCount++;
-                }
-            }
-
-            // 3. ПОМЕЧАЕМ ЦЕЛЕВУЮ ПАПКУ КАК НЕПОЛНУЮ
-            // После перемещения кеш целевой папки становится неполным
-            if (successCount > 0) {
-                const targetFolderKey = `${selectedCompany}_${selectedTargetFolder}`;
-                const targetFolderData = folderCache[targetFolderKey];
-
-                if (targetFolderData) {
-                    // Получаем ожидаемое количество изображений
-                    const expectedCount = getExpectedImageCountFromStructure(selectedTargetFolder);
-                    const currentCount = targetFolderData.data?.length || 0;
-
-                    if (expectedCount > 0 && currentCount < expectedCount) {
-                        console.log(`⚠️ Целевая папка ${selectedTargetFolder} неполная после перемещения: ${currentCount}/${expectedCount}`);
-                        // Можно пометить для перезагрузки при следующем посещении
-                        invalidateFolderCache(selectedCompany, selectedTargetFolder, true);
-                    }
-                }
-
-                addNotification(`Перенесено ${successCount} изображений`, 'success');
+            const moved = await moveImageBatch(selectedImages, {
+                isCurrent: operation.isCurrent,
+                move: imageId => updateImage(token, imageId, {file_path: selectedTargetFolder}),
+                onMoved: imageId => moveImageBetweenFolders(imageId, currentPath, selectedTargetFolder, selectedCompany),
+                onError: () => addNotification('Не удалось подтвердить перенос изображения. Проверьте состояние перемещений.', 'error')
+            });
+            if (!operation.isCurrent()) return;
+            setSelectedImages(ids => ids.filter(id => !moved.has(id)));
+            if (moved.size > 0) addNotification(`Перенесено ${moved.size} изображений`, 'success');
+            if (moved.size === new Set(selectedImages).size) {
                 setShowMoveModal(false);
                 setSelectedTargetFolder('');
-                setSelectedImages([]);
                 setIsSelectionMode(false);
             }
-
-        } catch (error: any) {
-            console.error('Ошибка переноса изображений:', error);
-            handleImageError(error, addNotification);
-            // В случае ошибки перезагружаем полные данные
-            await loadFullFolderStructure(true);
-            await loadFolderData();
-        } finally {
-            setMoving(false);
-        }
-    };
-
-    const updateFolderStructureCache = async () => {
-        if (!token || !selectedCompany) return;
-
-        try {
-            const response = await callApi(() => getDirectoryObjects(token, selectedCompany));
-            if (response) {
-                // Обновляем кеш, но НЕ трогаем текущее состояние folders
-                setFullFolderStructure(response);
-                setCachedFolderStructure(selectedCompany, response);
-
-                // Логируем для отладки
-                console.log('✅ Структура папок обновлена в кеше');
+            // A timeout may follow a successful server commit. Reconcile both folders.
+            invalidateFolderCache(selectedCompany, currentPath, false);
+            invalidateFolderCache(selectedCompany, selectedTargetFolder, false);
+            invalidateFolderStructureCache();
+            try {
+                await loadFolderData(true);
+                if (operation.isCurrent()) await loadFullFolderStructure(true);
+            } catch {
+                if (operation.isCurrent()) addNotification('Не удалось обновить галерею. Проверьте состояние перемещений.', 'error');
             }
-        } catch (error) {
-            console.error('Ошибка обновления кеша структуры папок:', error);
+        } finally {
+            if (operation.isCurrent()) setMoveRevision(value => value + 1);
+            operation.finish();
         }
     };
 
@@ -1097,69 +911,43 @@ const ImagesPage: React.FC = () => {
             return;
         }
 
-        // Сохраняем текущее состояние папок для отката
-        const previousFolders = [...folders];
-
-        // Сразу добавляем новую папку в UI (оптимистичное обновление)
-        const newFolderPath = currentPath + trimmedName + '/';
-        const newFolder: Folder = {
-            id: newFolderPath,
-            name: trimmedName,
-            path: newFolderPath,
-            isDirectory: true
-        };
-
-        setFolders(prev => [...prev, newFolder].sort((a, b) => a.name.localeCompare(b.name)));
-        setShowCreateFolderModal(false);
-        setNewFolderName('');
-
+        const operation = folderCreation.begin();
+        if (!operation) return;
         try {
-            const response = await callApi(() => createDirectory(token, {
+            await createDirectory(token, {
                 company_id: selectedCompany,
                 dir_name: trimmedName.endsWith('/') ? trimmedName : trimmedName + '/',
                 dir_path: currentPath
-            }));
-
-            if (response) {
-                addNotification('Папка создана', 'success');
-
-                // ОБНОВЛЯЕМ СТРУКТУРУ ПАПОК ПОСЛЕ УСПЕШНОГО СОЗДАНИЯ
-                await updateFolderStructureCache();
-
-                // Принудительно обновляем полную структуру
-                await loadFullFolderStructure(true);
-            } else {
-                // Если response === null (ошибка в callApi), откатываем UI
-                throw new Error('Ошибка создания папки');
+            });
+            if (!operation.isCurrent()) return;
+            const path = currentPath + trimmedName + '/';
+            setFolders(prev => [...prev.filter(folder => folder.path !== path), {
+                id: path, name: trimmedName, path, isDirectory: true
+            }].sort((a, b) => a.name.localeCompare(b.name)));
+            setShowCreateFolderModal(false);
+            setNewFolderName('');
+            addNotification('Папка создана', 'success');
+            invalidateFolderStructureCache();
+            try {await loadFullFolderStructure(true);} catch {
+                if (operation.isCurrent()) addNotification('Папка создана, но список не удалось обновить.', 'error');
             }
-
         } catch (error: any) {
-            console.error('Ошибка создания папки:', error);
-
-            // ОТКАТЫВАЕМ UI ИЗМЕНЕНИЯ ПРИ ОШИБКЕ
-            setFolders(previousFolders);
-
-            // Показываем соответствующее сообщение об ошибке
-            if (error.response?.status === 422 || error.response?.status === 400) {
-                addNotification('Папка с таким названием уже существует или некорректное имя', 'error');
-            } else if (error.response?.status === 409) {
-                addNotification('Папка с таким названием уже существует', 'error');
-            } else {
-                addNotification('Ошибка создания папки', 'error');
-            }
-
-            // Открываем модальное окно снова чтобы пользователь мог попробовать другое имя
-            setShowCreateFolderModal(true);
-            setNewFolderName(trimmedName);
-        }
+            if (!operation.isCurrent()) return;
+            addNotification(error.response?.status === 409 ? 'Папка с таким названием уже существует'
+                : error.response?.status === 422 || error.response?.status === 400
+                    ? 'Некорректное имя папки'
+                    : 'Не удалось подтвердить создание папки. Обновите список перед повторной попыткой.', 'error');
+            invalidateFolderStructureCache();
+            try {await loadFullFolderStructure(true);} catch { /* The existing folder error provides retry. */ }
+        } finally {operation.finish();}
     };
 
 // Добавьте функцию для инвалидации кеша структуры папок
     const invalidateFolderStructureCache = useCallback(() => {
         if (selectedCompany) {
-            setCachedFolderStructure(selectedCompany, {}); // Очищаем кеш
+            invalidateCachedFolderStructure(selectedCompany);
         }
-    }, [selectedCompany, setCachedFolderStructure]);
+    }, [selectedCompany, invalidateCachedFolderStructure]);
 
     // Переименование папки
     const handleRenameFolder = async (folderPath: string, oldName: string, newName: string) => {
@@ -1177,105 +965,57 @@ const ImagesPage: React.FC = () => {
             return;
         }
 
-        // БЛОКИРУЕМ ПАПКУ
+        const operation = folderRename.begin();
+        if (!operation) return;
         setRenamingFolders(prev => new Set(prev).add(folderPath));
-
-        // Сохраняем старые данные для отката
-        const oldFolderData = folders.find(f => f.path === folderPath);
-        const oldFolderKey = `${selectedCompany}_${folderPath}`;
-        const oldCacheData = folderCache[oldFolderKey];
-
-        console.log(`🔄 Начало переименования папки: ${oldName} -> ${newName}, текущий isLoadedFromServer: ${oldCacheData?.isLoadedFromServer}`);
-
+        let committed = false;
         try {
-            // 1. СРАЗУ обновляем UI
-            setFolders(prev => prev.map(folder =>
-                folder.path === folderPath
-                    ? {
-                        ...folder,
-                        name: newName,
-                        path: currentPath + newName + '/'
-                    }
-                    : folder
-            ));
-
-            setEditingItem(null);
-            setEditName('');
-
-            // 2. ОБНОВЛЯЕМ КЕШ: сохраняем данные из старой папки в новую С СОХРАНЕНИЕМ isLoadedFromServer
-            const newFolderPath = currentPath + newName + '/';
-
-            if (oldCacheData && oldCacheData.data) {
-                // КРИТИЧЕСКИ ВАЖНО: сохраняем оригинальный флаг isLoadedFromServer
-                // Если папка была загружена с сервера - она остается загруженной и после переименования
-                const shouldKeepLoadedFlag = oldCacheData.isLoadedFromServer === true;
-
-                // Используем updateFolderCacheDirectly с сохранением флага
-                updateFolderCacheDirectly(selectedCompany, newFolderPath, oldCacheData.data, shouldKeepLoadedFlag);
-
-                // Удаляем старую запись из кеша через инвалидацию
-                invalidateFolderCache(selectedCompany, folderPath, false);
-
-                console.log(`🔄 Папка переименована: ${oldName} -> ${newName}, isLoadedFromServer сохранен: ${shouldKeepLoadedFlag}`);
-            }
-
-            // 3. Отправляем запрос на сервер
-            const response = await callApi(() => renameDirectory(token, {
+            await renameDirectory(token, {
                 company_id: selectedCompany,
                 old_dir_name: oldName + '/',
                 new_dir_name: newName + '/',
                 dir_path: currentPath
-            }));
-
-            if (response) {
-                addNotification('Папка переименована', 'success');
-                // Обновляем полную структуру в фоне
-                invalidateFolderStructureCache();
-                await loadFullFolderStructure(true);
-            } else {
-                // Откатываем UI изменения при ошибке
-                if (oldFolderData) {
-                    setFolders(prev => prev.map(folder =>
-                        folder.path === currentPath + newName + '/'
-                            ? oldFolderData
-                            : folder
-                    ));
-                }
-                // Откатываем кеш при ошибке - инвалидируем новую папку и восстанавливаем старую
-                if (oldCacheData && oldCacheData.data) {
-                    invalidateFolderCache(selectedCompany, newFolderPath, false);
-                    updateFolderCacheDirectly(selectedCompany, folderPath, oldCacheData.data, oldCacheData.isLoadedFromServer);
-                }
-                addNotification('Ошибка переименования папки', 'error');
-            }
-        } catch (error: any) {
-            console.error('Ошибка переименования папки:', error);
-            // Откатываем UI изменения при ошибке
-            if (oldFolderData) {
-                setFolders(prev => prev.map(folder =>
-                    folder.path === currentPath + newName + '/'
-                        ? oldFolderData
-                        : folder
-                ));
-            }
-            // Откатываем кеш при ошибке
-            if (oldCacheData && oldCacheData.data) {
-                invalidateFolderCache(selectedCompany, currentPath + newName + '/', false);
-                updateFolderCacheDirectly(selectedCompany, folderPath, oldCacheData.data, oldCacheData.isLoadedFromServer);
-            }
-
-            if (error.response?.status === 422) {
-                addNotification('Некорректное название папки', 'error');
-            } else {
-                addNotification('Ошибка переименования папки', 'error');
-            }
-        } finally {
-            // РАЗБЛОКИРУЕМ ПАПКУ
-            setRenamingFolders(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(folderPath);
-                return newSet;
             });
+            if (!operation.isCurrent()) return;
+            committed = true;
+            setEditingItem(null);
+            setEditName('');
+            setFolders(prev => prev.map(folder => folder.path === folderPath
+                ? {...folder, name: newName, path: currentPath + newName + '/'} : folder));
+            addNotification('Папка переименована', 'success');
+        } catch (error: any) {
+            if (!operation.isCurrent()) return;
+            addNotification(error.response?.status === 422
+                ? 'Некорректное название папки'
+                : 'Не удалось подтвердить переименование. Проверьте состояние перемещений.', 'error');
+        } finally {
+            try {
+                if (operation.isCurrent()) {
+                    const newPath = currentPath + newName + '/';
+                    // Nested folders must also be reloaded with their actual server paths.
+                    for (const key of Object.keys(folderCache)) {
+                        const prefix = `${selectedCompany}_`;
+                        if (!key.startsWith(prefix)) continue;
+                        const path = key.slice(prefix.length);
+                        if (path.startsWith(folderPath) || path.startsWith(newPath))
+                            invalidateFolderCache(selectedCompany, path, false);
+                    }
+                    invalidateFolderCache(selectedCompany, folderPath, false);
+                    invalidateFolderCache(selectedCompany, newPath, false);
+                    invalidateFolderStructureCache();
+                    setMoveRevision(value => value + 1);
+                    try {await loadFullFolderStructure(true);} catch {
+                        if (operation.isCurrent()) addNotification(committed
+                            ? 'Папка переименована, но список не удалось обновить. Повторите обновление.'
+                            : 'Не удалось обновить список папок.', 'error');
+                    }
+                }
+            } finally {
+                if (operation.isCurrent()) setRenamingFolders(prev => {
+                    const next = new Set(prev); next.delete(folderPath); return next;
+                });
+                operation.finish();
+            }
         }
     };
 
@@ -1294,116 +1034,72 @@ const ImagesPage: React.FC = () => {
             return;
         }
 
+        const operation = imageRename.begin();
+        if (!operation) return;
         try {
-            // Сохраняем текущий blob URL если есть
-            const currentCached = getCachedImage(imageId);
-            const currentBlobUrl = currentCached?.isBlob ? currentCached.url : null;
-
-            const updatedImage = {
-                ...image,
-                title: newName,
-                // Сохраняем URL если он есть, иначе оставляем оригинальный
-                url: currentBlobUrl || image.url
-            };
-
-            // СРАЗУ обновляем кеш - UI обновится автоматически через useMemo
-            updateImageInCache(selectedCompany, currentPath, imageId, updatedImage);
-
-            // Отправляем запрос на сервер в фоне
-            const response = await withErrorHandling(
-                () => updateImage(token, imageId, { title: newName }),
-                addNotification,
-                'Изображение переименовано'
-            );
-
-            if (!response) {
-                // Откатываем при ошибке
-                updateImageInCache(selectedCompany, currentPath, imageId, image);
-                addNotification('Ошибка переименования изображения', 'error');
-            } else {
-                // Если был blob, убедимся что он остается в кеше
-                if (currentBlobUrl) {
-                    // Обновляем timestamp blob'а чтобы он не считался устаревшим
-                    setTimeout(() => {
-                        const refreshedCached = getCachedImage(imageId);
-                        if (refreshedCached && refreshedCached.isBlob) {
-                            console.log(`🔄 Обновляем timestamp blob'а для переименованного изображения ${imageId}`);
-                            // Можно вызвать refreshExistingBlobs для этого изображения
-                            refreshExistingBlobs([updatedImage]);
-                        }
-                    }, 100);
-                }
+            await updateImage(token, imageId, {title: newName});
+            if (!operation.isCurrent()) return;
+            const cached = getCachedImage(imageId);
+            updateImageInCache(selectedCompany, currentPath, imageId, {
+                ...image, title: newName, url: cached?.isBlob ? cached.url : image.url
+            });
+            addNotification('Изображение переименовано', 'success');
+        } catch (error) {
+            if (!operation.isCurrent()) return;
+            handleImageError(error as ApiError, addNotification);
+            // A lost response can follow a successful save; reconcile with the server.
+            invalidateFolderCache(selectedCompany, currentPath, false);
+            try {await loadFolderData(true);} catch {
+                if (operation.isCurrent()) addNotification('Не удалось обновить название. Обновите галерею.', 'error');
             }
-        } catch (error: any) {
-            // Откатываем при ошибке
-            const originalImage = images.find(img => img.image_id === imageId);
-            if (originalImage) {
-                updateImageInCache(selectedCompany, currentPath, imageId, originalImage);
-            }
-            console.error('Ошибка переименования изображения:', error);
-            handleImageError(error, addNotification);
-        }
+        } finally {operation.finish();}
     };
 
     // Удаление папки
     const handleDeleteFolder = async (folderPath: string, folderName: string) => {
-        if (!token || !selectedCompany) return;
+        if (!token || !selectedCompany || folderDeletion.busy) return;
 
         if (!window.confirm(`Удалить папку "${folderName}"? Все изображения внутри также будут удалены.`)) {
             return;
         }
 
+        const operation = folderDeletion.begin();
+        if (!operation) return;
         try {
-            // Мгновенно удаляем папку из UI
+            await deleteDirectory(token, {
+                company_id: selectedCompany,
+                dir_name: folderName + '/',
+                dir_path: currentPath
+            });
+            if (!operation.isCurrent()) return;
             setFolders(prev => prev.filter(folder => folder.path !== folderPath));
-
             addNotification(`Папка "${folderName}" удалена`, 'success');
-
-            // ОБНОВЛЯЕМ СТРУКТУРУ ПАПОК
-            invalidateFolderStructureCache();
-
-            // В фоне удаляем на сервере и обновляем структуру
-            setTimeout(async () => {
-                try {
-                    const response = await callApi(() => deleteDirectory(token, {
-                        company_id: selectedCompany,
-                        dir_name: folderName + '/',
-                        dir_path: currentPath
-                    }));
-
-                    if (response) {
-                        // Обновляем структуру папок
-                        await loadFullFolderStructure(true);
-                        addNotification(`Удалено изображений: ${response["deleted image id"].length}`, 'info');
-                    }
-                } catch (error) {
-                    console.error('Ошибка удаления папки:', error);
-                    addNotification('Ошибка удаления папки', 'error');
-                    // В случае ошибки перезагружаем данные
+        } catch (error) {
+            if (operation.isCurrent()) handleImageError(error as ApiError, addNotification);
+        } finally {
+            try {
+                if (operation.isCurrent()) {
+                    setDeletionRevision(value => value + 1);
+                    invalidateFolderStructureCache();
                     await loadFullFolderStructure(true);
                 }
-            }, 100);
-
-        } catch (error) {
-            console.error('Ошибка удаления папки:', error);
-            addNotification('Ошибка удаления папки', 'error');
+            } finally {operation.finish();}
         }
     };
 
     // Long press handlers для выбора
+    const handleImageLongPressEnd = () => {
+        if (longPressTimer.current !== null) clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+    };
+
     const handleImageLongPressStart = (imageId: string) => {
-        const timer = setTimeout(() => {
+        handleImageLongPressEnd();
+        longPressTimer.current = setTimeout(() => {
+            longPressTimer.current = null;
             setIsSelectionMode(true);
             setSelectedImages([imageId]);
         }, 500);
-        setLongPressTimer(timer);
-    };
-
-    const handleImageLongPressEnd = () => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            setLongPressTimer(null);
-        }
     };
 
     // Вспомогательные функции
@@ -1515,9 +1211,11 @@ const ImagesPage: React.FC = () => {
     };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (imageUpload.busy) return;
         if (e.target.files && e.target.files.length > 0) {
             const files = Array.from(e.target.files);
-            setSelectedFiles(files);
+            setSelectedFiles(uniqueUploadFiles(files));
+            e.target.value = '';
 
             const existingNames = images.map(img => img.file_name);
             const duplicateNames = files.filter(file => existingNames.includes(file.name));
@@ -1563,17 +1261,7 @@ const ImagesPage: React.FC = () => {
         } else {
             const image = images.find(img => img.image_id === imageId);
             if (image) {
-                // Используем кешированное изображение
-                const cached = getCachedImage(imageId);
-                const url = cached?.url || image.url;
-
-                if (url) {
-                    setViewImage({
-                        url: url,
-                        title: image.title || image.file_name,
-                        isLoaded: false
-                    });
-                }
+                setViewImage({ url: image.url, image_id: imageId, title: image.title || image.file_name });
             }
         }
     };
@@ -1587,24 +1275,27 @@ const ImagesPage: React.FC = () => {
     }
 
     return (
-        <div className="max-w-6xl mx-auto p-6">
+        <div className="workspace-page">
             <style>{loaderStyles}</style>
             <style>{imageOptimizationStyles}</style>
-            <motion.h1
-                initial={{opacity: 0, y: -10}}
-                animate={{opacity: 1, y: 0}}
-                transition={{duration: 0.4}}
-                className="text-3xl font-bold text-coffee-dark mb-6"
-            >
-                Галерея изображений
-            </motion.h1>
 
             <motion.div
                 initial={{opacity: 0, y: 10, scale: 0.98}}
                 animate={{opacity: 1, y: 0, scale: 1}}
                 transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
-                className="bg-white rounded-xl shadow-lg p-6 min-h-[600px]"
+                className="workspace-card bg-white min-h-[600px] flex flex-col"
             >
+                <h2 className="section-title">Галерея изображений</h2>
+                {selectedCompany && <PendingStorageMoves key={`moves:${selectedCompany}:${sessionScope}`} companyId={selectedCompany} revision={moveRevision}/>}
+                {selectedCompany && <PendingStorageDeletions key={`deletions:${selectedCompany}:${sessionScope}`} companyId={selectedCompany}
+                    revision={deletionRevision} onCompleted={async () => {
+                        invalidateFolderStructureCache();
+                        invalidateFolderCache(selectedCompany, currentPath, false);
+                        await loadFolderImages(selectedCompany, currentPath, false, true);
+                        await loadFullFolderStructure(true);
+                        await loadStorageLimits();
+                    }}/>}
+
                 {/* Панель инструментов */}
                 <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center">
@@ -1691,7 +1382,7 @@ const ImagesPage: React.FC = () => {
                         {/* Корзина */}
                         <button
                             onClick={handleDeleteSelected}
-                            disabled={selectedImages.length === 0}
+                            disabled={selectedImages.length === 0 || imageDeletion.busy}
                             className={`p-2 rounded-lg transition-colors ${selectedImages.length === 0 ? 'bg-gray-100 text-gray-400' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
                             title="Удалить выбранные"
                         >
@@ -1720,14 +1411,14 @@ const ImagesPage: React.FC = () => {
                                 setIsSelectionMode(!isSelectionMode);
                                 setSelectedImages([]);
                             }}
-                            className={`p-2 rounded-lg transition-colors ${isSelectionMode ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            className="company-edit-button"
+                            aria-label={isSelectionMode ? 'Завершить выделение' : 'Выделить несколько'}
+                            aria-pressed={isSelectionMode}
                             title={isSelectionMode ? 'Отменить выделение' : 'Выделить несколько'}
                         >
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                      d={isSelectionMode ? 'M5 12l4 4L19 6' : 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L9 17l-4 1 1-4L16.5 3.5z'}/>
                             </svg>
                         </button>
                     </div>
@@ -1750,7 +1441,7 @@ const ImagesPage: React.FC = () => {
                 )}
 
                 {/* Контент - папки и изображения */}
-                <div className="opacity-100 transition-opacity duration-300">
+                <div className="opacity-100 transition-opacity duration-300 flex-1">
                     {/* Папки */}
                     <div className="mb-8">
                         <h2 className="text-xl font-semibold text-coffee-dark mb-4">Папки</h2>
@@ -1792,6 +1483,7 @@ const ImagesPage: React.FC = () => {
                                                     {!isRenaming && (
                                                         <button
                                                             type="button"
+                                                            disabled={folderDeletion.busy}
                                                             className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 rounded-full p-1 cursor-pointer z-10"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -1862,7 +1554,9 @@ const ImagesPage: React.FC = () => {
                                 <button
                                     onClick={() => {
                                         setFoldersLoadError(null);
-                                        loadFullFolderStructure(true);
+                                        void loadFullFolderStructure(true).catch(() => {
+                                            // The loader already records the error for the retry panel.
+                                        });
                                     }}
                                     className="text-red-700 hover:text-red-900 underline text-sm"
                                 >
@@ -1885,7 +1579,7 @@ const ImagesPage: React.FC = () => {
                                 <button
                                     onClick={() => {
                                         setImagesLoadError(null);
-                                        loadFolderData();
+                                        void loadFolderData(true);
                                     }}
                                     className="text-red-700 hover:text-red-900 underline text-sm"
                                 >
@@ -1901,6 +1595,8 @@ const ImagesPage: React.FC = () => {
                             <div className="flex justify-center py-8">
                                 <LoadingSpinner size="small" text="Загрузка изображений..."/>
                             </div>
+                        ) : imagesLoadError ? (
+                            <p className="text-gray-500 text-center py-4">Изображения временно недоступны. Повторите загрузку.</p>
                         ) : images.length === 0 ? (
                             <p className="text-gray-500 text-center py-4">Нет изображений</p>
                         ) : (
@@ -1922,6 +1618,7 @@ const ImagesPage: React.FC = () => {
                                         onMouseLeave={handleImageLongPressEnd}
                                         onTouchStart={() => handleImageLongPressStart(image.image_id)}
                                         onTouchEnd={handleImageLongPressEnd}
+                                        onTouchCancel={handleImageLongPressEnd}
                                     >
                                         <div
                                             className={`bg-gray-100 rounded overflow-hidden cursor-pointer aspect-square w-32 h-32 relative`}
@@ -1945,6 +1642,7 @@ const ImagesPage: React.FC = () => {
                                                 {!isSelectionMode && (
                                                     <button
                                                         type="button"
+                                                        disabled={imageDeletion.busy}
                                                         className="absolute top-0 left-0 opacity-0 group-hover:opacity-100 transition-opacity bg-green-500 rounded-full p-1 cursor-pointer z-10 m-1"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -2040,12 +1738,17 @@ const ImagesPage: React.FC = () => {
                     </div>
                 </div>
                 {/* Блок информации о лимитах - улучшенный современный вариант */}
+                {storageError && <div className="mt-3 text-sm" role="alert">
+                    Не удалось обновить лимиты хранилища.
+                    <button type="button" className="ml-2 underline" disabled={storageLoading}
+                        onClick={() => void loadStorageLimits()}>Повторить</button>
+                </div>}
                 {storageInfo && (
                     <motion.div
                         initial={{opacity: 0, y: 10}}
                         animate={{opacity: 1, y: 0}}
                         transition={{duration: 0.5}}
-                        className="mt-5 pt-3 border-t border-gray-200"
+                        className="mt-5 pt-3 border-t border-gray-200 shrink-0"
                     >
                         {/* Заголовок с пояснением */}
                         {/*<div className="mb-2 p-2 bg-gray-50 rounded-lg">*/}
@@ -2075,8 +1778,8 @@ const ImagesPage: React.FC = () => {
                                     <div
                                         className="bg-amber-500 h-2 rounded-full transition-all duration-300"
                                         style={{
-                                            width: `${Math.min(((storageInfo.used_count || 0) / storageInfo.quota_count_images) * 100, 100)}%`,
-                                            backgroundColor: ((storageInfo.used_count || 0) / storageInfo.quota_count_images) > 0.9 ? '#ef4444' : '#f59e0b'
+                                            width: `${Math.min(((storageInfo.used_count || 0) / (storageInfo.quota_count_images || 1)) * 100, 100)}%`,
+                                            backgroundColor: ((storageInfo.used_count || 0) / (storageInfo.quota_count_images || 1)) > 0.9 ? '#ef4444' : '#f59e0b'
                                         }}
                                     ></div>
                                 </div>
@@ -2102,8 +1805,8 @@ const ImagesPage: React.FC = () => {
                                     <div
                                         className="bg-blue-500 h-2 rounded-full transition-all duration-300"
                                         style={{
-                                            width: `${Math.min(((storageInfo.used_size || 0) / storageInfo.quota_storage_size) * 100, 100)}%`,
-                                            backgroundColor: ((storageInfo.used_size || 0) / storageInfo.quota_storage_size) > 0.9 ? '#ef4444' : '#3b82f6'
+                                            width: `${Math.min(((storageInfo.used_size || 0) / (storageInfo.quota_storage_size || 1)) * 100, 100)}%`,
+                                            backgroundColor: ((storageInfo.used_size || 0) / (storageInfo.quota_storage_size || 1)) > 0.9 ? '#ef4444' : '#3b82f6'
                                         }}
                                     ></div>
                                 </div>
@@ -2142,6 +1845,7 @@ const ImagesPage: React.FC = () => {
                                     type="file"
                                     multiple
                                     accept="image/*"
+                                    disabled={uploading}
                                     onChange={handleFileSelect}
                                     className="hidden"
                                 />
@@ -2231,6 +1935,7 @@ const ImagesPage: React.FC = () => {
                         <input
                             type="text"
                             value={newFolderName}
+                            disabled={folderCreation.busy}
                             onChange={(e) => setNewFolderName(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && newFolderName && !isFolderNameExists) {
@@ -2262,9 +1967,9 @@ const ImagesPage: React.FC = () => {
                             </button>
                             <button
                                 onClick={handleCreateFolder}
-                                disabled={!newFolderName || isFolderNameExists}
+                                disabled={folderCreation.busy || !newFolderName.trim() || isFolderNameExists}
                                 className={`px-4 py-2 rounded-lg transition-colors ${
-                                    !newFolderName || isFolderNameExists
+                                    folderCreation.busy || !newFolderName.trim() || isFolderNameExists
                                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                                         : 'bg-blue-600 text-white hover:bg-blue-700'
                                 }`}
@@ -2354,20 +2059,7 @@ const ImagesPage: React.FC = () => {
                                 setViewImage(null); // Закрываем по клику на изображение
                             }}
                         >
-                            {!viewImage.isLoaded && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                                </div>
-                            )}
-                            <img
-                                src={viewImage.url}
-                                alt={viewImage.title}
-                                className={`max-w-full max-h-full object-contain transition-opacity duration-300 cursor-pointer ${
-                                    viewImage.isLoaded ? 'opacity-100' : 'opacity-0'
-                                }`}
-                                onLoad={() => setViewImage(prev => prev ? {...prev, isLoaded: true} : null)}
-                                // Убираем stopPropagation здесь, так как обработчик теперь на родительском div
-                            />
+                            <FastImage imageData={viewImage} contain className="w-full h-full" />
                         </div>
                     </div>
                 </div>

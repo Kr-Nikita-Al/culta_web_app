@@ -1,16 +1,30 @@
 import api from './api';
 import config from '../config';
 
+export interface StaffCandidate {
+    user_id: string;
+    name: string;
+    surname: string;
+    email_hint: string;
+}
+
+export const searchStaffCandidates = async (companyId: string, role: string, action: string, q: string) => {
+    const response = await api.get<{users: StaffCandidate[]; has_more: boolean}>(
+        `${config.apiBaseUrl}/user_role/search_staff_candidates`,
+        {params: {company_id: companyId, role, action, q}});
+    return response.data;
+};
+
 export interface GrantRoleParams {
     promo_user_id: string;
     company_id: string;
-    role: 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK';
+    role: 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK' | 'PORTAL_ROLE_HOSTESS';
 }
 
 export interface RevokeRoleParams {
     demo_user_id: string;
     company_id: string;
-    role: 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK';
+    role: 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK' | 'PORTAL_ROLE_HOSTESS';
 }
 
 export const grantStaffPrivilege = async (token: string, params: GrantRoleParams) => {
@@ -50,6 +64,7 @@ export const ROLE_TYPES = {
     PORTAL_ROLE_MODERATOR: 'PORTAL_ROLE_MODERATOR',
     PORTAL_ROLE_WAITER: 'PORTAL_ROLE_WAITER',
     PORTAL_ROLE_COOK: 'PORTAL_ROLE_COOK',
+    PORTAL_ROLE_HOSTESS: 'PORTAL_ROLE_HOSTESS',
     PORTAL_ROLE_USER: 'PORTAL_ROLE_USER',
     PORTAL_ROLE_SUPER_ADMIN: 'PORTAL_ROLE_SUPER_ADMIN'
 } as const;
@@ -60,6 +75,7 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
     PORTAL_ROLE_MODERATOR: 'Модератор',
     PORTAL_ROLE_WAITER: 'Официант',
     PORTAL_ROLE_COOK: 'Повар',
+    PORTAL_ROLE_HOSTESS: 'Хостес',
     PORTAL_ROLE_USER: 'Пользователь',
     PORTAL_ROLE_SUPER_ADMIN: 'Супер администратор'
 };

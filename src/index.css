@@ -2,6 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+.staff-roles-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.staff-roles-heading>div{display:flex;gap:6px}.staff-roles-scroll{overflow-x:auto}
+.staff-roles-scroll table{width:100%;border-collapse:collapse;font-size:13px}
+.staff-roles-scroll th,.staff-roles-scroll td{padding:12px 10px;border-bottom:1px solid #e5e7eb;text-align:center}
+.staff-roles-scroll th:first-child{text-align:left;min-width:180px}
+.staff-roles-scroll thead{background:#f6f7f4}.staff-roles-scroll small{display:block;font-weight:400;color:#7b8276}
+.staff-roles-scroll input[type=checkbox]{height:16px;width:16px;accent-color:#536d48}
+.staff-roles-pages{display:flex;justify-content:flex-end;gap:16px;margin-top:12px}
+
+.workspace-page .reservation-tabs,.workspace-page .orders-tabs,.workspace-page .company-tabs,.workspace-page .menu-tabs{margin-top:12px}
+.workspace-page>.section-title,.workspace-page>.reservations-heading{margin-bottom:0}
+.workspace-page.company-page--tabbed .company-access-fields{grid-template-columns:150px 190px minmax(180px,1fr) auto}
+.workspace-page.company-page--tabbed .company-access-submit{grid-column:auto;padding-top:32px}
+@media(max-width:1000px){.workspace-page.company-page--tabbed .company-access-fields{grid-template-columns:1fr 1fr}.workspace-page.company-page--tabbed .company-access-submit{align-self:start}}
+
+.workspace-card .orders-tab-panel,.workspace-card .menu-editor-grid,
+.workspace-page.company-page--tabbed>.workspace-card.workspace-card,
+.company-page--tabbed .company-infrastructure-panel>.workspace-card.workspace-card{margin-top:12px;padding:16px;border:1px solid #e0e6da;border-radius:18px;background:#fff;box-shadow:none;}
+.company-page--tabbed .company-info-panel{position:relative;}
+.company-info-tools{position:absolute;right:16px;top:16px;z-index:1;}
+.company-info-panel .company-details-layout{padding-right:82px;}
+.orders-toolbar .orders-refresh{margin-left:auto;width:36px;height:36px;display:grid;place-items:center;border:1px solid #d8cfc4;border-radius:8px;background:white;color:#624329;}
+.orders-refresh:disabled{opacity:.5;cursor:wait;}
+.orders-toolbar button{min-height:36px;height:36px;padding:6px 12px;}
+@media(max-width:700px){.company-info-panel .company-details-layout{padding-right:0;padding-top:42px;}}
+
+/* Compact single-line controls throughout the workspace; keep textareas resizable. */
+.workspace-page.workspace-page input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]),
+.workspace-page.workspace-page select {height:36px;min-height:36px;padding:6px 10px;font-size:14px;box-sizing:border-box;}
+.workspace-page.workspace-page select {padding-right:32px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b7280' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
+
+/* One layout for the main cards on every workspace tab. */
+.workspace-page.workspace-page {
+  max-width:1050px;
+  min-width:0;
+  margin:32px 32px 32px 0;
+  padding:0;
+}
+.workspace-card.workspace-card {
+  padding:24px;
+  border:1px solid #e8e1d8;
+  border-radius:20px;
+  box-shadow:0 12px 40px #32251e0d;
+}
+@media(max-width:700px) {
+  .workspace-page.workspace-page {margin:16px 8px;}
+  .workspace-card.workspace-card {padding:16px;}
+}
+
 :root {
   --coffee-dark: #3e2723;
   --coffee-medium: #5d4037;
@@ -12,6 +61,59 @@
 body {
   font-family: 'Inter', sans-serif;
   color: #333;
+}
+
+/* Shared controls: keep variants and their interaction states in one place. */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 44px;
+  padding: .6rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: .875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.ui-button--primary { background: #6f4d32; color: #fff; border-color: #6f4d32; }
+.ui-button--primary:hover:not(:disabled) { background: #573a25; border-color: #573a25; }
+.ui-button--secondary { background: #fff; color: #49372b; border-color: #d8cfc4; box-shadow: 0 1px 2px #32251e08; }
+.ui-button--secondary:hover:not(:disabled) { background: #f5eee5; border-color: #b9a58f; }
+.ui-button--danger { background: #fff6f4; color: #9a3a30; border-color: #e9c8c2; }
+.ui-button--danger:hover:not(:disabled) { background: #fbe5e0; border-color: #d99d91; }
+.ui-button--ghost { background: transparent; color: inherit; }
+.ui-button--ghost:hover:not(:disabled) { background: #ffffff14; }
+.ui-button:active:not(:disabled) { box-shadow: inset 0 2px 4px #00000016; }
+.ui-button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+.ui-button:focus-visible, .app-sidebar button:focus-visible { outline: 3px solid #b87c35; outline-offset: 3px; }
+
+.app-header { min-height: 72px; padding-inline: 24px; background-color: var(--coffee-dark); }
+.app-header .company-trigger { background: var(--coffee-medium); border-color: transparent; font-weight: 500; }
+.company-chevron { font-size: 1.15rem; opacity: .7; }
+.app-header .logout-button { color: #e4d5c7; }
+.app-sidebar { position: sticky; top: 96px; align-self: flex-start; flex-shrink: 0; width: 224px; margin-left: 24px; max-height: calc(100dvh - 112px); overflow-y: auto; border-radius: 12px; }
+.app-sidebar > div { background: rgb(0 0 0 / 10%); border-color: rgb(255 255 255 / 20%); backdrop-filter: blur(4px); box-shadow: 0 8px 24px #32251e12; padding: 12px; }
+.app-sidebar h2 { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: #fff; margin: 12px 16px 20px; }
+.app-sidebar ul { display: grid; gap: 6px; }
+.app-sidebar ul > li { margin: 0; }
+.app-sidebar button { min-height: 38px; padding-top:8px; padding-bottom:8px; font-size: .9rem; transition: background-color .15s ease; }
+.app-sidebar button.bg-white { background: rgb(255 255 255 / 20%); color: #fff; box-shadow: 0 4px 6px #0000001a; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .ui-button, .app-sidebar button { transition: none; }
+}
+@media (max-width: 700px) {
+  .app-header { padding-inline: 12px; }
+  .app-header > a span { display: none; }
+  .app-header > div { gap: 6px; margin: 0; }
+  .app-header .company-trigger { max-width: 220px; font-size: .75rem; padding-inline: 10px; }
+  .app-sidebar { width: auto; margin: 24px 8px 0; }
+  .app-sidebar > div { padding: 8px; }
+  .app-sidebar h2 { display: none; }
+  .app-sidebar button { padding: 10px; font-size: .8rem; }
 }
 
 .bg-coffee-dark {
@@ -139,3 +241,13 @@ body {
     height: 9rem;
   }
 }
+/* Shared main-card headings across profile, company, gallery, orders and reservations. */
+.section-title {
+  font-size:24px;
+  line-height:32px;
+  font-weight:600;
+  color:#92400e;
+  letter-spacing:normal;
+  margin:0 0 24px;
+}
+.section-title.section-title--inline {margin:0;}

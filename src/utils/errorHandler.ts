@@ -1,4 +1,3 @@
-import { useNotifications } from '../context/NotificationContext';
 
 export interface ApiError {
     response?: {
@@ -15,6 +14,11 @@ export const handleImageError = (error: ApiError, addNotification: (message: str
     const detail = error.response?.data?.detail;
 
     console.error('Image operation error:', { status, detail, error });
+
+    if (status === 503 && detail === 'Storage write access denied') {
+        addNotification('Хранилище запретило загрузку. Обратитесь к администратору для проверки прав записи.', 'error');
+        return;
+    }
 
     // Обработка специфичных ошибок
     if (status === 405 && detail?.includes('Quota objects over limited')) {
@@ -34,7 +38,7 @@ export const handleImageError = (error: ApiError, addNotification: (message: str
     }
 
     if (status === 403 && detail?.includes('Keys not found')) {
-        addNotification('Изображение не найдено', 'error');
+        addNotification('Не настроен доступ к хранилищу. Обратитесь к администратору.', 'error');
         return;
     }
 

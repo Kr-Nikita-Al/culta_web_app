@@ -1,8 +1,8 @@
 import React, {createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef} from 'react';
 import { useAuth } from './AuthContext';
-import { useApi } from '../hooks/useApi';
 import {getFolderImages, getImageById, refreshFolderUrls} from '../services/imageService';
 import {useFolderLoading} from "../hooks/useFolderLoading";
+import {imageSessionScope} from '../utils/imageSessionScope';
 
 interface Image {
     image_id: string;
@@ -57,7 +57,7 @@ interface ImageCacheContextType {
     cache: Record<string, ImageCacheItem>;
     folderCache: Record<string, FolderCache>;
     getCurrentFolderImages: (folderPath: string) => Image[];
-    loadFolderImages: (companyId: string, folderPath: string, includeSubfolders?: boolean) => Promise<void>;
+    loadFolderImages: (companyId: string, folderPath: string, includeSubfolders?: boolean, forceRefresh?: boolean) => Promise<void>;
     refreshFolderUrls: (companyId: string, folderPath: string) => Promise<void>;
     getCachedImageUrl: (imageId: string) => string | null;
     getCachedImage: (imageId: string) => { url: string; isBlob: boolean } | null;
@@ -74,6 +74,7 @@ interface ImageCacheContextType {
     loadAndCacheImage: (imageData: Image, url: string) => Promise<string | null>;
     refreshExistingBlobs: (images: Image[]) => Promise<void>;
     getCachedFolderStructure: (companyId: string) => { [key: string]: number } | null;
+    invalidateCachedFolderStructure: (companyId: string) => void;
     setCachedFolderStructure: (companyId: string, objects: { [key: string]: number }) => void;
     updateFolderCacheDirectly: (companyId: string, folderPath: string, images: Image[], forceIsLoadedFromServer: boolean | undefined) => void;
     getImageFromAnyFolder: (imageId: string) => Image | null;
@@ -91,19 +92,43 @@ export const useImageCache = () => {
 };
 
 export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const {userId, token} = useAuth();
+    // A token refresh preserves the cache; logout or another account starts a new one.
+    return <SessionImageCacheProvider key={imageSessionScope(userId, token)}>
+        {children}
+    </SessionImageCacheProvider>;
+};
+
+const SessionImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [cache, setCache] = useState<Record<string, ImageCacheItem>>({});
     const [folderCache, setFolderCache] = useState<Record<string, FolderCache>>({});
     const [loading, setLoading] = useState(false);
+    const loadingCount = useRef(0);
     const [error, setError] = useState<string | null>(null);
-    const [loadingImages, setLoadingImages] = useState<Map<string, Promise<string | null>>>(new Map());
-    const [activeFolderRequests, setActiveFolderRequests] = useState<Set<string>>(new Set());
+    const loadingImages = useRef(new Map<string, Promise<string | null>>()).current;
+    const imageControllers = useRef(new Map<string, AbortController>());
+    const mounted = useRef(true);
     const activeRequests = useRef<Map<string, Promise<void>>>(new Map());
-    const { loadingFolders, startFolderLoading, stopFolderLoading, isFolderLoading } = useFolderLoading();
-    const [completedPreloads, setCompletedPreloads] = useState<Set<string>>(new Set());
+    const urlRequests = useRef(new Map<string, object>());
+    const folderRevisions = useRef<Map<string, number>>(new Map());
+    const { startFolderLoading, stopFolderLoading } = useFolderLoading();
 
     const [folderStructureCache, setFolderStructureCache] = useState<Record<string, FolderStructureCache>>({});
     const { token } = useAuth();
-    const { callApi } = useApi();
+    const ownedCache = useRef(cache);
+    ownedCache.current = cache;
+    useEffect(() => {
+        mounted.current = true;
+        const controllers = imageControllers.current;
+        return () => {
+        mounted.current = false;
+        controllers.forEach(controller => controller.abort());
+        controllers.clear();
+        Object.values(ownedCache.current).forEach(item => {
+            if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
+        });
+        };
+    }, []);
 
     useEffect(() => {
         const cleanupInterval = setInterval(() => {
@@ -142,7 +167,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }, 5 * 60 * 1000); // Каждые 5 минут
 
         return () => clearInterval(cleanupInterval);
-    }, [BLOB_CACHE_DURATION]);
+    }, []);
 
     const cleanupExpiredBlobs = useCallback(() => {
         const now = Date.now();
@@ -172,7 +197,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         if (cleanedCount > 0) {
             console.log(`🧹 Очищено ${cleanedCount} устаревших blob'ов`);
         }
-    }, [BLOB_CACHE_DURATION]);
+    }, []);
 
     useEffect(() => {
         const interval = setInterval(cleanupExpiredBlobs, 30 * 60 * 1000);
@@ -191,7 +216,15 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }
 
         return cached.objects;
-    }, [folderStructureCache, FOLDER_STRUCTURE_CACHE_DURATION]);
+    }, [folderStructureCache]);
+
+    const invalidateCachedFolderStructure = useCallback((companyId: string) => {
+        setFolderStructureCache(prev => {
+            const next = {...prev};
+            delete next[`structure_${companyId}`];
+            return next;
+        });
+    }, []);
 
     const setCachedFolderStructure = useCallback((companyId: string, objects: { [key: string]: number }) => {
         const cacheKey = `structure_${companyId}`;
@@ -216,7 +249,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }
 
         return cachedFolder.data || [];
-    }, [folderCache, FOLDER_CACHE_DURATION]);
+    }, [folderCache]);
 
     const getFolderImages_ = useCallback((folderPath: string): Image[] => {
         if (!folderPath) return [];
@@ -247,6 +280,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
 
     // Улучшенная функция загрузки и кеширования изображения с дедупликацией
     const loadAndCacheImage = useCallback(async (imageData: Image, url: string): Promise<string | null> => {
+        if (!mounted.current) return null;
         const imageId = imageData.image_id;
 
         // Пропускаем blob URLs
@@ -276,10 +310,13 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
 
         console.log(`📥 ${imageId}: начинаем загрузку BLOB`);
 
+        const controller = new AbortController();
+        imageControllers.current.set(imageId, controller);
         // Создаем промис загрузки
         const loadPromise = (async () => {
             try {
                 const response = await fetch(url, {
+                    signal: controller.signal,
                     mode: 'cors',
                     credentials: 'omit',
                     cache: 'no-cache',
@@ -300,6 +337,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                     return null;
                 }
 
+                if (!mounted.current || controller.signal.aborted) return null;
                 const blobUrl = URL.createObjectURL(blob);
 
                 // Сохраняем в кеш
@@ -308,7 +346,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                     [imageId]: {
                         url: url,
                         timestamp: now,
-                        imageData: imageData,
+                        imageData: prev[imageId]?.imageData || imageData,
                         blobUrl: blobUrl,
                         blob: blob,
                         blobTimestamp: now
@@ -319,6 +357,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                 return blobUrl;
 
             } catch (error) {
+                if (!mounted.current || controller.signal.aborted) return null;
                 console.error(`❌ ${imageId}: ошибка загрузки BLOB:`, error);
 
                 // Сохраняем оригинальный URL в кеш при ошибке
@@ -327,7 +366,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                     [imageId]: {
                         url: url,
                         timestamp: now,
-                        imageData: imageData
+                        imageData: prev[imageId]?.imageData || imageData
                     }
                 }));
 
@@ -336,23 +375,20 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         })();
 
         // Сохраняем промис для предотвращения дублирования
-        setLoadingImages(prev => new Map(prev).set(imageId, loadPromise));
+        loadingImages.set(imageId, loadPromise);
 
         try {
             return await loadPromise;
         } finally {
             // Убираем из набора загружаемых
-            setLoadingImages(prev => {
-                const newMap = new Map(prev);
-                newMap.delete(imageId);
-                return newMap;
-            });
+            if (imageControllers.current.get(imageId) === controller) imageControllers.current.delete(imageId);
+            if (loadingImages.get(imageId) === loadPromise) loadingImages.delete(imageId);
         }
-    }, [loadingImages, cache, BLOB_CACHE_DURATION]);
+    }, [loadingImages, cache]);
 
     const getImageFromAnyFolder = useCallback((imageId: string): Image | null => {
         // Ищем изображение во всех папках
-        for (const [folderKey, folderData] of Object.entries(folderCache)) {
+        for (const folderData of Object.values(folderCache)) {
             const image = folderData.data?.find(img => img.image_id === imageId);
             if (image) {
                 return image;
@@ -362,7 +398,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
     }, [folderCache]);
 
     const moveImageBetweenFolders = useCallback((imageId: string, fromFolder: string, toFolder: string, companyId: string) => {
-        if (!companyId) return;
+        if (!companyId || fromFolder === toFolder) return;
 
         const fromKey = `${companyId}_${fromFolder}`;
         const toKey = `${companyId}_${toFolder}`;
@@ -378,13 +414,13 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
             if (imageIndex === -1) return newCache;
 
             // Извлекаем изображение
-            const [movedImage] = fromFolderData.data.splice(imageIndex, 1);
+            const movedImage = {...fromFolderData.data[imageIndex], file_path: toFolder};
 
             // Обновляем исходную папку (сохраняем все флаги)
             newCache[fromKey] = {
                 ...fromFolderData,
                 images: fromFolderData.images.filter(id => id !== imageId),
-                data: fromFolderData.data
+                data: fromFolderData.data.filter(image => image.image_id !== imageId)
             };
 
             // Добавляем в целевую папку
@@ -395,8 +431,8 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                 // Если папка уже есть в кеше - добавляем изображение, НЕ меняем isLoadedFromServer!
                 newCache[toKey] = {
                     ...toFolderData,
-                    images: [...toFolderData.images, imageId],
-                    data: [...toFolderData.data, movedImage],
+                    images: [...toFolderData.images.filter(id => id !== imageId), imageId],
+                    data: [...toFolderData.data.filter(image => image.image_id !== imageId), movedImage],
                     // ВАЖНО: сохраняем исходный флаг isLoadedFromServer
                     isLoadedFromServer: toFolderData.isLoadedFromServer
                 };
@@ -447,7 +483,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         for (let i = 0; i < imagesToPreload.length; i += BATCH_SIZE) {
             const batch = imagesToPreload.slice(i, i + BATCH_SIZE);
 
-            await Promise.allSettled(
+            const results = await Promise.allSettled(
                 batch.map(async (image, index) => {
                     try {
                         console.log(`📥 Предзагрузка ${i + index + 1}/${imagesToPreload.length}: ${image.image_id}`);
@@ -455,8 +491,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                         if (image.url) {
                             const result = await loadAndCacheImage(image, image.url);
                             if (result) {
-                                successfulLoads++;
-                                console.log(`✅ Успешно предзагружено: ${image.image_id}`);
+                                return true;
                             }
                         }
                     } catch (error) {
@@ -465,6 +500,8 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                 })
             );
 
+            successfulLoads += results.filter(result => result.status === 'fulfilled' && result.value === true).length;
+
             // Пауза между батчами
             if (i + BATCH_SIZE < imagesToPreload.length) {
                 await new Promise(resolve => setTimeout(resolve, 500));
@@ -472,7 +509,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }
 
         console.log(`✅ Предзагрузка завершена: ${successfulLoads}/${imagesToPreload.length} успешно`);
-    }, [token, cache, loadingImages, loadAndCacheImage, BLOB_CACHE_DURATION]);
+    }, [token, cache, loadingImages, loadAndCacheImage]);
 
     const refreshExistingBlobs = useCallback(async (images: Image[]) => {
         const imagesToRefresh = images.filter(image => {
@@ -487,7 +524,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
             console.log(`🔄 Обновляем blob'ы для ${imagesToRefresh.length} изображений`);
             await preloadImages(imagesToRefresh);
         }
-    }, [cache, preloadImages, BLOB_CACHE_DURATION]);
+    }, [cache, preloadImages]);
 
     const addImagesToCache = useCallback((companyId: string, folderPath: string, images: Image[]) => {
         if (!companyId || !folderPath) return;
@@ -533,66 +570,38 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
 
     const updateFolderCacheDirectly = useCallback((companyId: string, folderPath: string, images: Image[], forceIsLoadedFromServer: boolean | null = null) => {
         const folderKey = `${companyId}_${folderPath}`;
-        const now = Date.now();
-
-        // Сохраняем существующий флаг isLoadedFromServer если папка уже есть, ИЛИ используем переданный флаг
-        const existingFolder = folderCache[folderKey];
-        let isLoadedFromServerValue: boolean; // ← ЯВНО УКАЗЫВАЕМ ТИП
-
-        if (forceIsLoadedFromServer !== null) {
-            // Если явно указан флаг - используем его
-            isLoadedFromServerValue = forceIsLoadedFromServer;
-        } else if (existingFolder && existingFolder.isLoadedFromServer !== undefined) {
-            // Если папка уже существует - сохраняем ее флаг
-            isLoadedFromServerValue = existingFolder.isLoadedFromServer;
-        } else {
-            // По умолчанию - false для новых папок
-            isLoadedFromServerValue = false;
-        }
-
-        // Сохраняем blob'ы из существующего кеша
-        const imagesWithPreservedBlobs = images.map(image => {
-            const cachedImage = cache[image.image_id];
-            if (cachedImage && cachedImage.blobUrl) {
-                return {
-                    ...image,
-                    url: cachedImage.blobUrl
-                };
-            }
-            return image;
-        });
-
+        // Folder records retain server URLs; blob lifetime is managed separately.
         setFolderCache(prev => ({
             ...prev,
             [folderKey]: {
-                images: imagesWithPreservedBlobs.map(img => img.image_id),
-                timestamp: now,
-                data: imagesWithPreservedBlobs,
-                isLoadedFromServer: isLoadedFromServerValue
+                images: images.map(image => image.image_id),
+                timestamp: Date.now(),
+                data: images,
+                isLoadedFromServer: forceIsLoadedFromServer ?? prev[folderKey]?.isLoadedFromServer ?? false
             }
         }));
-
-        console.log(`🔄 Прямое обновление кеша папки ${folderPath}, изображений: ${imagesWithPreservedBlobs.length}, isLoadedFromServer: ${isLoadedFromServerValue}`);
-    }, [cache, folderCache])
+    }, []);
 
     const removeImageFromCache = useCallback((companyId: string, folderPath: string, imageId: string) => {
-        const folderKey = `${companyId}_${folderPath}`;
-
+        imageControllers.current.get(imageId)?.abort();
+        imageControllers.current.delete(imageId);
+        loadingImages.delete(imageId);
+        const prefix = `${companyId}_`;
+        // In-flight lists may still contain the deleted image, including uncached folders.
+        for (const key of Array.from(new Set([`${prefix}${folderPath}`, ...Array.from(activeRequests.current.keys())]))) {
+            if (key.startsWith(prefix))
+                folderRevisions.current.set(key, (folderRevisions.current.get(key) || 0) + 1);
+        }
         setFolderCache(prev => {
-            const folder = prev[folderKey];
-            if (!folder) return prev;
-
-            const updatedFolder = {
-                ...folder,
-                images: folder.images.filter(id => id !== imageId),
-                data: folder.data.filter(img => img.image_id !== imageId)
-            };
-
-            console.log(`🗑️ Удалено изображение ${imageId} из папки ${folderPath}, осталось: ${updatedFolder.data.length}`);
-            return {
-                ...prev,
-                [folderKey]: updatedFolder
-            };
+            const next = {...prev};
+            for (const [key, folder] of Object.entries(prev)) {
+                if (!key.startsWith(prefix)) continue;
+                if (!folder.images.includes(imageId) && !folder.data.some(image => image.image_id === imageId)) continue;
+                next[key] = {...folder,
+                    images: folder.images.filter(id => id !== imageId),
+                    data: folder.data.filter(image => image.image_id !== imageId)};
+            }
+            return next;
         });
 
         setCache(prev => {
@@ -604,61 +613,39 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
             delete newCache[imageId];
             return newCache;
         });
-    }, []);
+    }, [loadingImages]);
 
     const updateImageInCache = useCallback((companyId: string, folderPath: string, imageId: string, updatedImage: Image) => {
-        const folderKey = `${companyId}_${folderPath}`;
+        // Lists already in flight predate this confirmed edit.
+        for (const key of Array.from(activeRequests.current.keys())) {
+            if (key.startsWith(`${companyId}_`))
+                folderRevisions.current.set(key, (folderRevisions.current.get(key) || 0) + 1);
+        }
         const now = Date.now();
-
-        // Сохраняем существующий blob если он есть
-        const existingCacheItem = cache[imageId];
-        const existingBlobUrl = existingCacheItem?.blobUrl;
-        const existingBlobTimestamp = existingCacheItem?.blobTimestamp;
-        const existingBlob = existingCacheItem?.blob;
-
         setFolderCache(prev => {
-            const folder = prev[folderKey];
-            if (!folder) {
-                // Если папки нет в кеше, создаем новую
-                return {
-                    ...prev,
-                    [folderKey]: {
-                        images: [imageId],
-                        timestamp: now,
-                        data: [updatedImage]
-                    }
-                };
+            const next = {...prev};
+            for (const [key, folder] of Object.entries(prev)) {
+                if (!key.startsWith(`${companyId}_`)) continue;
+                if (!folder.data.some(image => image.image_id === imageId)) continue;
+                next[key] = {...folder, data: folder.data.map(image =>
+                    image.image_id === imageId ? updatedImage : image)};
             }
-
-            return {
-                ...prev,
-                [folderKey]: {
-                    ...folder,
-                    data: folder.data.map(img =>
-                        img.image_id === imageId ? updatedImage : img
-                    )
-                }
-            };
+            return next;
         });
-
         setCache(prev => ({
             ...prev,
             [imageId]: {
+                ...prev[imageId],
                 url: updatedImage.url || prev[imageId]?.url || '',
                 timestamp: now,
-                imageData: updatedImage,
-                // СОХРАНЯЕМ СУЩЕСТВУЮЩИЙ BLOB ЕСЛИ ОН ЕСТЬ
-                blobUrl: existingBlobUrl || prev[imageId]?.blobUrl,
-                blobTimestamp: existingBlobTimestamp || prev[imageId]?.blobTimestamp,
-                blob: existingBlob || prev[imageId]?.blob
+                imageData: updatedImage
             }
         }));
-
-        console.log(`🔄 Обновлено изображение ${imageId} в кеше, blob сохранен: ${!!existingBlobUrl}`);
     }, []);
 
     const invalidateFolderCache = useCallback((companyId: string, folderPath: string, keepImages: boolean = false) => {
         const folderKey = `${companyId}_${folderPath}`;
+        folderRevisions.current.set(folderKey, (folderRevisions.current.get(folderKey) || 0) + 1);
 
         if (keepImages) {
             // Сохраняем данные, но помечаем для перезагрузки при следующем посещении
@@ -716,7 +703,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         console.log(`🔄 Кеш папки ${folderPath} обновлен, изображений: ${updatedImages.length}, с сервера: ${isFromServer}`);
     }, []);
 
-    const ensureAllImagesHaveUrls = async (images: Image[], token: string): Promise<Image[]> => {
+    const ensureAllImagesHaveUrls = useCallback(async (images: Image[], token: string): Promise<Image[]> => {
         const imagesWithUrls: Image[] = [];
 
         for (const image of images) {
@@ -751,10 +738,10 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }
 
         return imagesWithUrls;
-    };
+    }, []);
 
     // ОСНОВНОЕ УЛУЧШЕНИЕ: Загрузка изображений папки с дедупликацией
-    const loadFolderImages = useCallback(async (companyId: string, folderPath: string, includeSubfolders: boolean = false): Promise<void> => {
+    const loadFolderImages = useCallback(async (companyId: string, folderPath: string, includeSubfolders: boolean = false, forceRefresh: boolean = false): Promise<void> => {
         if (!token || !companyId || !folderPath) return;
 
         const folderKey = `${companyId}_${folderPath}`;
@@ -762,8 +749,10 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         // Проверяем, не выполняется ли уже запрос для этой папки
         if (activeRequests.current.has(folderKey)) {
             console.log(`⏳ Запрос для папки ${folderPath} уже выполняется, ожидаем...`);
-            await activeRequests.current.get(folderKey);
-            return;
+            try {await activeRequests.current.get(folderKey);} catch (error) {
+                if (!forceRefresh) throw error;
+            }
+            if (!forceRefresh) return;
         }
 
         // Проверяем кеш
@@ -772,7 +761,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         const FOLDER_CACHE_DURATION = 30 * 60 * 1000;
 
         // Если папка полностью загружена с сервера и не устарела - НЕ делаем запрос
-        if (cachedFolder &&
+        if (!forceRefresh && cachedFolder &&
             cachedFolder.isLoadedFromServer === true && // ← ТОЧНО true
             cachedFolder.timestamp > 0 &&
             (now - cachedFolder.timestamp < FOLDER_CACHE_DURATION)) {
@@ -796,37 +785,40 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
                 !cachedFolder.isLoadedFromServer ? 'искусственный кеш' : 'устарел');
 
         // Создаем промис для этого запроса
+        const revision = folderRevisions.current.get(folderKey) || 0;
         const requestPromise = (async () => {
             startFolderLoading(folderKey);
+            loadingCount.current += 1;
             setLoading(true);
 
             try {
-                const response = await callApi(() =>
-                    getFolderImages(token, companyId, folderPath, includeSubfolders)
-                );
-
-                if (response === null) {
-                    console.log('📝 Запрос был отменен, пропускаем обновление кеша');
-                    return;
+                const response = await getFolderImages(token, companyId, folderPath, includeSubfolders);
+                if ((folderRevisions.current.get(folderKey) || 0) !== revision) return;
+                if (!response || !Array.isArray(response.images)) {
+                    throw new Error('Некорректный ответ при загрузке изображений');
                 }
 
                 if (response?.images) {
                     const folderImages = response.images.filter(img => img.file_path === folderPath);
                     const imagesWithUrls = await ensureAllImagesHaveUrls(folderImages, token);
+                    if ((folderRevisions.current.get(folderKey) || 0) !== revision) return;
 
                     // Сохраняем с флагом isLoadedFromServer = true
                     updateFolderCache(companyId, folderPath, imagesWithUrls, true); // ← true означает "загружено с сервера"
                 }
 
             } catch (error) {
+                if ((folderRevisions.current.get(folderKey) || 0) !== revision) return;
                 if (error instanceof Error && error.name === 'AbortError') {
                     console.log('📝 Загрузка папки отменена');
                     return;
                 }
                 console.error('💥 Ошибка загрузки папки:', error);
                 setError('Ошибка загрузки изображений');
+                throw error;
             } finally {
-                setLoading(false);
+                loadingCount.current = Math.max(0, loadingCount.current - 1);
+                setLoading(loadingCount.current > 0);
                 stopFolderLoading(folderKey);
             }
         })();
@@ -838,9 +830,9 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
             await requestPromise;
         } finally {
             // Удаляем промис из карты после завершения
-            activeRequests.current.delete(folderKey);
+            if (activeRequests.current.get(folderKey) === requestPromise) activeRequests.current.delete(folderKey);
         }
-    }, [token, callApi, folderCache, startFolderLoading, stopFolderLoading, updateFolderCache, ensureAllImagesHaveUrls]);
+    }, [token, folderCache, startFolderLoading, stopFolderLoading, updateFolderCache, ensureAllImagesHaveUrls]);
 
 
     const getCurrentFolderImages = useCallback((folderPath: string): Image[] => {
@@ -864,60 +856,55 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
             return;
         }
 
+        const requestKey = `${companyId}_${folderPath}`;
+        const identity = {};
+        urlRequests.current.set(requestKey, identity);
+        const isCurrent = () => mounted.current && urlRequests.current.get(requestKey) === identity;
         console.log('🔄 Принудительное обновление URL папки:', folderPath);
-        setLoading(true);
+        loadingCount.current += 1;
+            setLoading(true);
         setError(null);
 
         try {
-            const response = await callApi(() =>
-                refreshFolderUrls(token, companyId, folderPath)
-            );
+            const response = await refreshFolderUrls(token, companyId, folderPath);
+            if (!isCurrent()) return;
+            if (!response || !response.urls || typeof response.urls !== 'object' || Array.isArray(response.urls))
+                throw new Error('Invalid image URL response');
 
-            if (response && response.urls) {
-                const updatedCache: Record<string, ImageCacheItem> = {};
-                const now = Date.now();
+            if (response.urls) {
+                const urls = response.urls;
                 const folderKey = `${companyId}_${folderPath}`;
-                const currentFolder = folderCache[folderKey];
-
-                if (!currentFolder) {
-                    console.log('❌ Папка не найдена в кеше для обновления');
-                    return;
-                }
-
-                for (const [imageId, newUrl] of Object.entries(response.urls)) {
-                    const cachedItem = cache[imageId];
-                    if (cachedItem) {
-                        if (cachedItem.blobUrl) {
-                            URL.revokeObjectURL(cachedItem.blobUrl);
-                        }
-
-                        await loadAndCacheImage(cachedItem.imageData, newUrl as string);
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                // A signed URL refresh does not invalidate an already downloaded preview.
+                // Update current entries only: an older response must not recreate deleted cards.
+                setCache(prev => {
+                    const next = {...prev};
+                    for (const [imageId, url] of Object.entries(urls)) {
+                        const item = prev[imageId];
+                        if (!item || item.imageData.company_id !== companyId || typeof url !== 'string') continue;
+                        next[imageId] = {...item, url, imageData: {...item.imageData, url}};
                     }
-                }
-
-                setFolderCache(prev => ({
-                    ...prev,
-                    [folderKey]: {
-                        ...currentFolder,
-                        timestamp: now
-                    }
-                }));
+                    return next;
+                });
+                setFolderCache(prev => {
+                    const folder = prev[folderKey];
+                    if (!folder) return prev;
+                    return {...prev, [folderKey]: {...folder, data: folder.data.map(image =>
+                        typeof urls[image.image_id] === 'string'
+                            ? {...image, url: urls[image.image_id]} : image)}};
+                });
 
                 console.log('✅ URL и изображения папки обновлены');
             }
         } catch (apiError: any) {
+            if (!isCurrent()) return;
             console.error('Ошибка обновления URL папки:', apiError);
-            setError(apiError.message || 'Не удалось обновить URL изображений');
+            setError('Не удалось обновить ссылки изображений. Повторите попытку.');
         } finally {
-            setLoading(false);
+            if (isCurrent()) urlRequests.current.delete(requestKey);
+            loadingCount.current = Math.max(0, loadingCount.current - 1);
+                setLoading(loadingCount.current > 0);
         }
-    }, [token, callApi, cache, folderCache, loadAndCacheImage]);
-
-    const getCachedImageUrl = useCallback((imageId: string): string | null => {
-        const cached = getCachedImage(imageId);
-        return cached ? cached.url : null;
-    }, []);
+    }, [token]);
 
     const getCachedImage = useCallback((imageId: string): {
         url: string;
@@ -955,9 +942,20 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         }
 
         return null;
-    }, [cache, BLOB_CACHE_DURATION]);
+    }, [cache]);
+
+    const getCachedImageUrl = useCallback((imageId: string): string | null => {
+        const cached = getCachedImage(imageId);
+        return cached ? cached.url : null;
+    }, [getCachedImage]);
 
     const clearImageCache = useCallback(() => {
+        urlRequests.current.clear();
+        imageControllers.current.forEach(controller => controller.abort());
+        loadingImages.clear();
+        for (const key of Array.from(activeRequests.current.keys()))
+            folderRevisions.current.set(key, (folderRevisions.current.get(key) || 0) + 1);
+        setFolderStructureCache({});
         Object.values(cache).forEach(item => {
             if (item.blobUrl) {
                 URL.revokeObjectURL(item.blobUrl);
@@ -968,7 +966,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         setFolderCache({});
         setError(null);
         console.log('🧹 Кеш полностью очищен');
-    }, [cache]);
+    }, [cache, loadingImages]);
 
     const contextValue: ImageCacheContextType = {
         cache,
@@ -992,6 +990,7 @@ export const ImageCacheProvider: React.FC<{ children: ReactNode }> = ({ children
         refreshExistingBlobs,
         getCachedFolderStructure,
         setCachedFolderStructure,
+        invalidateCachedFolderStructure,
         updateFolderCacheDirectly,
         getImageFromAnyFolder,
         moveImageBetweenFolders

@@ -30,6 +30,13 @@ export const useSelectedCompany = () => {
 };
 
 export const SelectedCompanyProvider: React.FC<{children: ReactNode}> = ({ children }) => {
+    const {userId, token} = useAuth();
+    return <AccountSelectedCompanyProvider key={token && userId ? userId : 'anonymous'} userId={token ? userId : null}>
+        {children}
+    </AccountSelectedCompanyProvider>;
+};
+
+const AccountSelectedCompanyProvider: React.FC<{children: ReactNode; userId: string | null}> = ({children, userId}) => {
     const [selectedCompany, setSelectedCompanyState] = useState<string | null>(null);
     const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
     const [availableCompanies, setAvailableCompaniesState] = useState<CompanyWithName[]>([]);
@@ -38,15 +45,19 @@ export const SelectedCompanyProvider: React.FC<{children: ReactNode}> = ({ child
         const savedCompany = localStorage.getItem('selectedCompany');
         if (savedCompany) {
             try {
-                const { companyId, role } = JSON.parse(savedCompany);
-                setSelectedCompanyState(companyId);
-                setSelectedRole(role);
+                const saved = JSON.parse(savedCompany);
+                if (userId && saved.userId === userId && saved.role &&
+                    typeof saved.role.role === 'string' &&
+                    (saved.companyId === null || typeof saved.companyId === 'string')) {
+                    setSelectedCompanyState(saved.companyId);
+                    setSelectedRole(saved.role);
+                } else localStorage.removeItem('selectedCompany');
             } catch (error) {
                 console.error('Error parsing saved company:', error);
                 localStorage.removeItem('selectedCompany');
             }
         }
-    }, []);
+    }, [userId]);
 
     const resetSelectedCompany = useCallback(() => {
         setSelectedCompanyState(null);
@@ -60,25 +71,12 @@ export const SelectedCompanyProvider: React.FC<{children: ReactNode}> = ({ child
         setSelectedRole(role);
 
 
-        if (role && role.role === 'PORTAL_ROLE_SUPER_ADMIN') {
-            // Для роли суперадминистратора сохраняем специальный маркер
-            localStorage.setItem('selectedCompany', JSON.stringify({
-                companyId: 'superadmin',
-                role: { company_id: 'superadmin', role: 'PORTAL_ROLE_SUPER_ADMIN' }
-            }));
-        }
-        if (companyId && role) {
-            localStorage.setItem('selectedCompany', JSON.stringify({ companyId, role }));
-        } else if (role && role.role === 'PORTAL_ROLE_USER') {
-            // Для роли пользователя сохраняем специальный маркер
-            localStorage.setItem('selectedCompany', JSON.stringify({
-                companyId: 'user',
-                role: { company_id: 'user', role: 'PORTAL_ROLE_USER' }
-            }));
+        if (userId && role) {
+            localStorage.setItem('selectedCompany', JSON.stringify({userId, companyId, role}));
         } else {
             localStorage.removeItem('selectedCompany');
         }
-    }, []);
+    }, [userId]);
 
     const setAvailableCompanies = useCallback((companies: CompanyWithName[]) => {
         setAvailableCompaniesState(companies);

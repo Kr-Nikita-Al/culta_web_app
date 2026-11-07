@@ -2,8 +2,9 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('unauthenticated visitor sees the login form', async () => {
+  localStorage.clear();
+  window.history.replaceState({}, '', '/login');
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: 'Войти' })).toBeInTheDocument();
 });

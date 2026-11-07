@@ -1,0 +1,25 @@
+.admin-statistics-filters {display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin-bottom:16px}
+.admin-statistics label {display:flex;flex-direction:column;gap:6px;max-width:320px}
+.admin-statistics input {padding:8px 12px;border:1px solid #d9dedc;border-radius:8px}
+.admin-statistics button {padding:8px 18px;border:1px solid #c4d2ca;border-radius:8px;background:#edf3ed;color:#354c40;cursor:pointer}
+.admin-statistics-summary {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0}
+.admin-statistics-summary article {padding:18px;background:#f4f6f5;border-radius:12px;display:flex;flex-direction:column;gap:8px}
+.admin-statistics-summary strong {font-size:22px}
+.admin-statistics-table {overflow-x:auto;margin:20px 0}
+.admin-statistics table {width:100%;border-collapse:collapse;text-align:left}
+.admin-statistics th,.admin-statistics td {padding:12px;border-bottom:1px solid #e5e9e7;white-space:nowrap}
+.admin-statistics [role=alert] {color:#b02e2e}
+.admin-statistics.workspace-card {background:#fffdf9;color:#32251e}
+.admin-statistics>.section-title {margin-bottom:12px}
+.admin-statistics .company-tabs button {border-bottom:0;border-radius:10px 10px 0 0;background:transparent}
+.statistics-panel {margin-top:12px;padding:16px;border:1px solid #e0e6da;border-radius:18px;background:#fff}
+.statistics-note {color:#68736b;font-size:13px;line-height:1.6;margin:12px 0}
+.statistics-charts {display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:16px 0}
+.statistics-chart {min-width:0;padding:16px;border:1px solid #e4e9e0;border-radius:14px;background:#fafbf8;margin-bottom:16px}
+.statistics-chart h2 {font-size:15px;font-weight:600;margin-bottom:16px}
+.statistics-chart svg {width:100%;height:auto}.statistics-chart svg text{font-size:11px;fill:#667267}
+.statistics-chart summary {font-size:12px;cursor:pointer;color:#537b65}
+.statistics-data {max-height:200px;overflow:auto;font-size:12px}.statistics-data>div,.statistics-bar>div:first-child{display:flex;justify-content:space-between;gap:12px}
+.statistics-bar {margin:14px 0;font-size:13px}.statistics-track {height:8px;background:#e6ebe2;border-radius:8px;margin-top:6px}.statistics-track>div{height:100%;background:#839b75;border-radius:8px}
+.admin-statistics [hidden]{display:none!important}
+@media(max-width:600px){.statistics-charts{grid-template-columns:1fr}.statistics-panel{padding:12px}}

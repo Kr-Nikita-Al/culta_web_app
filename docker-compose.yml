@@ -9,6 +9,7 @@ services:
     ports:
       - "80:80"
     environment:
-      - REACT_APP_API_BASE_URL=http://193.106.174.216:8000
-      - REACT_APP_ENV=production
+      - BACKEND_UPSTREAM=${BACKEND_UPSTREAM:-http://host.docker.internal:8000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

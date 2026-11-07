@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useAuth } from '../context/AuthContext';
+import {ROLE_DISPLAY_NAMES} from '../services/roleService';
 
 const CompanySelector: React.FC = () => {
     const [selectedValue, setSelectedValue] = useState('');
@@ -30,7 +31,7 @@ const CompanySelector: React.FC = () => {
             'PORTAL_ROLE_MODERATOR': 'Модератор',
             'PORTAL_ROLE_USER': 'Пользователь'
         };
-        return roleNames[role] || role;
+        return ROLE_DISPLAY_NAMES[role] || roleNames[role] || role;
     };
 
     const handleCompanySelect = () => {
@@ -61,7 +62,7 @@ const CompanySelector: React.FC = () => {
         }
 
         // Обработка выбора компании
-        const selected = availableCompanies.find(c => c.companyId === selectedValue);
+        const selected = availableCompanies.find(c => `${c.companyId}:${c.role.role}` === selectedValue);
         if (selected) {
             setSelectedCompany(selected.companyId, selected.role);
             navigate('/profile/user_info', { replace: true });
@@ -96,7 +97,7 @@ const CompanySelector: React.FC = () => {
                             <option value="superadmin">Супер администратор</option>
                         )}
                         {availableCompanies.map(company => (
-                            <option key={company.companyId} value={company.companyId}>
+                            <option key={`${company.companyId}:${company.role.role}`} value={`${company.companyId}:${company.role.role}`}>
                                 {company.companyName} ({getRoleName(company.role.role)})
                             </option>
                         ))}

@@ -1,0 +1,19 @@
+.account-connections{padding:24px;color:#32251e}
+.account-connections>p{font-size:14px;color:#766755;margin:12px 0}
+.account-provider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:16px}
+.account-provider{display:flex;align-items:center;gap:12px;border:1px solid #e5ded4;border-radius:12px;padding:12px;background:#fffaf3}
+.account-provider small{display:block;font-size:12px;color:#766755;margin-top:3px}
+.account-provider-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;font-weight:700;background:#eee;flex-shrink:0}
+.account-provider-icon.google{color:#4285f4;background:#fff}.account-provider-icon.yandex{color:#fff;background:#ed292b}.account-provider-icon.telegram{color:#fff;background:#28a9e2}
+.account-connections button{padding:7px 10px;border:1px solid #ded2c3;border-radius:8px;background:#f0e7da;color:#624329;font-size:13px;cursor:pointer}
+.account-provider button{margin-left:auto}.account-connections button:disabled{opacity:.55;cursor:default}.account-connections button:focus-visible{outline:2px solid #765639;outline-offset:2px}
+.account-suggestion{position:relative;border:1px solid #e5ded4;border-radius:12px;margin-top:12px;padding:16px 42px 16px 16px;background:#fffaf3}
+.account-suggestion p{font-size:14px;color:#766755;margin:8px 0}.account-connections .account-dismiss{position:absolute;right:8px;top:8px;font-size:20px;padding:0;width:28px;height:28px;background:white;color:#b33}
+.account-candidate-actions{display:flex;gap:8px;flex-wrap:wrap}
+.profile-personal-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(290px,340px);gap:32px;align-items:start}
+.profile-personal-fields,.profile-login-column{min-width:0}
+.account-connections-inline{padding:0;font-size:16px}
+.account-connections-inline .account-provider-grid{grid-template-columns:minmax(0,1fr);margin-top:12px;gap:12px}
+.account-connections-inline .account-provider{padding:0;border:0;border-radius:0;background:transparent;gap:8px}
+.account-connections-inline .account-provider-icon{width:28px;height:28px;border-radius:8px;font-size:14px}
+@media(max-width:1100px){.profile-personal-layout{grid-template-columns:minmax(0,1fr);gap:24px}}

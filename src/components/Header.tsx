@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useCompanies } from '../context/CompaniesContext';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import logo from '../assets/logo.svg';
+import Button from './Button';
+import {ROLE_DISPLAY_NAMES} from '../services/roleService';
 
 const Header: React.FC = () => {
-    const { token, roles } = useAuth();
+    const { token, roles, sessionError, retrySession, logout } = useAuth();
     const { selectedCompany, selectedRole, availableCompanies, setSelectedCompany } = useSelectedCompany();
-    const { companies } = useCompanies();
+    const { companies, refreshCompanies, isLoading, error: companiesError } = useCompanies();
     const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
@@ -22,15 +24,7 @@ const Header: React.FC = () => {
 
     const hasUserRole = roles?.some(role => role.role === 'PORTAL_ROLE_USER');
 
-    const getRoleName = (role: string): string => {
-        const roleNames: Record<string, string> = {
-            'PORTAL_ROLE_ADMIN': 'Админ',
-            'PORTAL_ROLE_MODERATOR': 'Модератор',
-            'PORTAL_ROLE_USER': 'Пользователь',
-            'PORTAL_ROLE_SUPER_ADMIN': 'Супер администратор'
-        };
-        return roleNames[role] || role;
-    };
+    const getRoleName = (role: string): string => ROLE_DISPLAY_NAMES[role] || role;
 
     const getSelectedCompanyName = () => {
         if (!selectedCompany) {
@@ -53,14 +47,8 @@ const Header: React.FC = () => {
         navigate('/profile/user_info');
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem('authToken_v2');
-        localStorage.removeItem('userId_v2');
-        localStorage.removeItem('userInfo_v2');
-        localStorage.removeItem('userRoles_v2');
-        localStorage.removeItem('selectedCompany');
-        localStorage.removeItem('cachedCompanies');
-        window.location.href = '/login';
+    const handleLogout = async () => {
+        await logout();
     };
 
     const getDropdownOptions = () => {
@@ -104,32 +92,47 @@ const Header: React.FC = () => {
         !location.pathname.startsWith('/auth/');
 
     return (
-        <header className="bg-coffee-dark text-white p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50">
+        <header className="app-header bg-coffee-dark text-white p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50">
             <Link to="/" className="flex items-center">
                 <img src={logo} alt="Cafe Logo" className="h-10 mr-3" />
                 <span className="text-xl font-semibold">CoffeeStaff</span>
             </Link>
 
             <div className="flex items-center space-x-4">
+                {sessionError && <div role="alert" className="text-sm max-w-xs">
+                    {sessionError}
+                    <button type="button" className="underline ml-2" onClick={retrySession}>Повторить</button>
+                </div>}
                 {shouldShowCompanySelector && (
                     <div className="relative">
-                        <button
-                            onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
-                            className="flex items-center space-x-2 bg-coffee-medium hover:bg-coffee-light py-2 px-4 rounded transition"
+                        <Button
+                            variant="ghost"
+                            aria-expanded={showCompanyDropdown}
+                            onClick={() => {
+                                if (!showCompanyDropdown && isSuperAdmin) void refreshCompanies();
+                                setShowCompanyDropdown(!showCompanyDropdown);
+                            }}
+                            className="company-trigger"
                         >
                             <span>
                                 {getSelectedCompanyName()}
                                 {selectedRole && selectedRole.role !== 'PORTAL_ROLE_USER' && selectedRole.role !== 'PORTAL_ROLE_SUPER_ADMIN' && ` (${getRoleName(selectedRole.role)})`}
                             </span>
-                            <span>▼</span>
-                        </button>
+                            <span aria-hidden="true" className="company-chevron">⌄</span>
+                        </Button>
 
                         {showCompanyDropdown && (
                             <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg z-10">
                                 <div className="py-1">
+                                    {isLoading && <p role="status" className="px-4 py-2 text-sm text-gray-500">Обновление компаний…</p>}
+                                    {companiesError && <div className="px-4 py-2 text-sm text-red-700" role="alert">
+                                        {companiesError}
+                                        <button type="button" disabled={isLoading} className="block underline mt-1"
+                                            onClick={() => void refreshCompanies()}>Повторить</button>
+                                    </div>}
                                     {getDropdownOptions().map(option => (
                                         <button
-                                            key={option.id}
+                                            key={`${option.id}:${option.role.role}`}
                                             onClick={() => handleCompanyChange(option.id === 'user' || option.id === 'superadmin' ? null : option.id, option.role)}
                                             className="block w-full text-left px-4 py-2 text-sm text-coffee-dark hover:bg-coffee-cream"
                                         >
@@ -143,12 +146,12 @@ const Header: React.FC = () => {
                 )}
 
                 {token && (
-                    <button
+                    <Button variant="ghost"
                         onClick={handleLogout}
-                        className="bg-amber-700 hover:bg-amber-800 py-2 px-4 rounded transition"
+                        className="logout-button"
                     >
                         Выйти
-                    </button>
+                    </Button>
                 )}
             </div>
         </header>

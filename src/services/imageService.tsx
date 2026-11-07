@@ -35,8 +35,9 @@ export const getCompanyImages = async (token: string, companyId: string): Promis
     return response.data;
 };
 
-export const getImageById = async (token: string, imageId: string): Promise<ImageUrlResponse> => {
+export const getImageById = async (token: string, imageId: string, signal?: AbortSignal): Promise<ImageUrlResponse> => {
     const response = await api.get<ImageUrlResponse>(`${config.apiBaseUrl}/image/get_by_id?image_id=${imageId}`, {
+        signal,
         headers: {
             Authorization: `Bearer ${token}`,
         },

@@ -1,10 +1,9 @@
-import axios from 'axios';
 import { UserInfo } from '../types/authTypes';
-import config from '../config';
 import api from "./api";
 
 export const getUserInfo = async (token: string, userId: string): Promise<UserInfo> => {
-    const response = await axios.get(`${config.apiBaseUrl}/user/get_by_id?user_id=${userId}`, {
+    const response = await api.get('/user/get_by_id', {
+        params: {user_id: userId},
         headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -16,7 +15,7 @@ export const getUserInfo = async (token: string, userId: string): Promise<UserIn
 
 export const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
-        const response = await api.get(`/user/check_by_email?email=${encodeURIComponent(email)}`);
+        await api.get(`/user/check_by_email?email=${encodeURIComponent(email)}`);
         // Успешный ответ (200) означает, что email свободен
         return true;
     } catch (error: any) {

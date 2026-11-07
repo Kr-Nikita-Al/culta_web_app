@@ -62,8 +62,9 @@ export const renameDirectory = async (token: string, data: RenameDirectoryReques
     return response.data;
 };
 
-export const getDirectoryObjects = async (token: string, companyId: string): Promise<DirectoryObjects> => {
+export const getDirectoryObjects = async (token: string, companyId: string, signal?: AbortSignal): Promise<DirectoryObjects> => {
     const response = await api.get<DirectoryObjects>(`/s3_directory/get_objects_by_company_id?company_id=${companyId}`, {
+        signal,
         headers: {
             Authorization: `Bearer ${token}`,
         },

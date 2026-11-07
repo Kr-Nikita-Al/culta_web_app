@@ -24,11 +24,19 @@ export interface Screen {
 }
 
 export interface CompanyResponse {
+    orders_enabled?: boolean;
+    reservations_enabled?: boolean;
+    images_enabled?: boolean;
+    bonus_payment_perc?: string;
+    bonus_accrual_perc?: string;
+    allow_client_orders_inside?: boolean;
+    allow_client_orders_outside?: boolean;
+    service_type?: 'self_service' | 'waiter_service';
     company_id: string;
     company_name: string;
     address: string;
     phone: string;
-    email: string;
+    email: string | null;
     is_active: boolean;
     order_number: number;
     basic_screen_id: string;
@@ -59,7 +67,7 @@ export interface UserInfo {
     name: string;
     surname: string;
     phone: string;
-    email: string;
+    email: string | null;
     is_active: boolean;
     creator_id: string;
     updater_id: string;

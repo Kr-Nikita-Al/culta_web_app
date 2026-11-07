@@ -4,4 +4,7 @@ node_modules
 Dockerfile
 docker-compose.yml
 .env
+.env.*
+*.pem
+*.key
 *.md

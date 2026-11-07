@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useApi } from '../hooks/useApi';
+import {useScopedOperation} from '../hooks/useScopedOperation';
 import api from '../services/api';
-import config from '../config';
 import { useNotifications } from '../context/NotificationContext';
 
 const CreateCompanyForm: React.FC = () => {
+    const {userId} = useAuth();
+    return <CompanyForm key={userId || 'anonymous'}/>;
+};
+const CompanyForm: React.FC = () => {
     const [formData, setFormData] = useState({
         company_name: '',
         address: '',
@@ -18,10 +21,8 @@ const CreateCompanyForm: React.FC = () => {
         order_number: 0
     });
     const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState<string | null>(null);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const {busy:isSubmitting,begin}=useScopedOperation('create-company');
     const { token } = useAuth();
-    const { callApi } = useApi();
     const { addNotification } = useNotifications();
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,21 +37,21 @@ const CreateCompanyForm: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsSubmitting(true);
+        if(!token)return;
+        const operation=begin();
+        if(!operation)return;
         setError(null);
-        setSuccess(null);
 
         try {
-            const response = await callApi(() =>
-                api.post(`${config.apiBaseUrl}/company/create`, formData, {
+            const response = await api.post('/company/create', formData, {
                     headers: {
                         Authorization: `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     }
-                })
-            );
+                });
+            if(!operation.isCurrent())return;
 
-            if (response) {
+            if (response?.data?.company_id) {
                 const companyId = response.data.company_id;
                 // Показываем уведомление с ID компании
                 addNotification(
@@ -69,11 +70,17 @@ const CreateCompanyForm: React.FC = () => {
                     order_number: 0
                 });
             }
+            else {
+                setError('Не удалось подтвердить создание компании. Обновите список перед повторной попыткой.');
+            }
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Ошибка при создании компании');
-            addNotification(err.response?.data?.detail || 'Ошибка при создании компании', 'error');
+            if(!operation.isCurrent())return;
+            const detail=err.response?.data?.detail;
+            const message=typeof detail==='string'?detail:err.response?.status===422?'Проверьте данные компании.':'Не удалось подтвердить создание компании. Обновите список перед повторной попыткой.';
+            setError(message);
+            addNotification(message, 'error');
         } finally {
-            setIsSubmitting(false);
+            operation.finish();
         }
     };
 
@@ -87,18 +94,13 @@ const CreateCompanyForm: React.FC = () => {
                 </div>
             )}
 
-            {success && (
-                <div className="mb-4 p-3 bg-green-100 text-green-700 rounded">
-                    {success}
-                </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} aria-label="Создание компании">
+                <fieldset disabled={isSubmitting} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label className="block text-gray-600 text-sm mb-1">Название компании *</label>
+                    <label htmlFor="create-company-company_name" className="block text-gray-600 text-sm mb-1">Название компании *</label>
                     <input
                         type="text"
-                        name="company_name"
+                        id="create-company-company_name" name="company_name"
                         value={formData.company_name}
                         onChange={handleInputChange}
                         className="w-full p-2 border border-gray-300 rounded"
@@ -107,10 +109,10 @@ const CreateCompanyForm: React.FC = () => {
                 </div>
 
                 <div>
-                    <label className="block text-gray-600 text-sm mb-1">Адрес *</label>
+                    <label htmlFor="create-company-address" className="block text-gray-600 text-sm mb-1">Адрес *</label>
                     <input
                         type="text"
-                        name="address"
+                        id="create-company-address" name="address"
                         value={formData.address}
                         onChange={handleInputChange}
                         className="w-full p-2 border border-gray-300 rounded"
@@ -119,10 +121,10 @@ const CreateCompanyForm: React.FC = () => {
                 </div>
 
                 <div>
-                    <label className="block text-gray-600 text-sm mb-1">Телефон *</label>
+                    <label htmlFor="create-company-phone" className="block text-gray-600 text-sm mb-1">Телефон *</label>
                     <input
                         type="tel"
-                        name="phone"
+                        id="create-company-phone" name="phone"
                         value={formData.phone}
                         onChange={handleInputChange}
                         className="w-full p-2 border border-gray-300 rounded"
@@ -132,10 +134,10 @@ const CreateCompanyForm: React.FC = () => {
                 </div>
 
                 <div>
-                    <label className="block text-gray-600 text-sm mb-1">Email *</label>
+                    <label htmlFor="create-company-email" className="block text-gray-600 text-sm mb-1">Email *</label>
                     <input
                         type="email"
-                        name="email"
+                        id="create-company-email" name="email"
                         value={formData.email}
                         onChange={handleInputChange}
                         className="w-full p-2 border border-gray-300 rounded"
@@ -163,6 +165,7 @@ const CreateCompanyForm: React.FC = () => {
                         <input
                             type="checkbox"
                             name="work_state"
+                            checked={formData.work_state}
                             onChange={handleInputChange}
                             className="mr-2"
                         />
@@ -179,6 +182,7 @@ const CreateCompanyForm: React.FC = () => {
                         {isSubmitting ? 'Создание...' : 'Создать компанию'}
                     </button>
                 </div>
+                </fieldset>
             </form>
         </div>
     );

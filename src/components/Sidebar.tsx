@@ -1,6 +1,8 @@
+import {useAuth} from '../context/AuthContext';
 import React, {useCallback} from 'react';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useNavigate } from 'react-router-dom';
+import {useCompanyModules} from './CompanyModuleGate';
 
 interface SidebarProps {
     activeTab: string;
@@ -10,6 +12,8 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     const { selectedRole } = useSelectedCompany();
     const navigate = useNavigate();
+    const {roles}=useAuth();
+    const modules = useCompanyModules();
 
     // Проверяем, является ли выбранная роль пользовательской
     const isUserRole = selectedRole?.role === 'PORTAL_ROLE_USER';
@@ -17,11 +21,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     // Показываем вкладку "Компания" только если роль не пользовательская и есть админские права
     const shouldShowCompaniesTab = !isUserRole && selectedRole && (
         selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
+        selectedRole.role === 'PORTAL_ROLE_OWNER' ||
         selectedRole.role === 'PORTAL_ROLE_SUPER_ADMIN'
     );
 
     // Показываем вкладку "Изображения" для администраторов и модераторов
     const shouldShowImagesTab = !isUserRole && selectedRole && (
+        selectedRole.role === 'PORTAL_ROLE_OWNER' ||
         selectedRole.role === 'PORTAL_ROLE_ADMIN' ||
         selectedRole.role === 'PORTAL_ROLE_MODERATOR'
     );
@@ -43,12 +49,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     }, [onTabChange, navigate]);
 
     return (
-        <div className="w-64 mt-8 ml-16">
+        <div className="app-sidebar w-64 mt-8 ml-16">
             <div className="bg-black bg-opacity-10 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white border-opacity-20">
-                <h2 className="text-xl font-semibold mb-6 text-white">Меню</h2>
+                <h2 className="text-xl font-semibold mb-6 text-white">Оглавление</h2>
                 <nav>
-                    <ul className="space-y-3">
-                        <li>
+                    <ul>
+                    <li>
                             <button
                                 onClick={handleProfileClick}
                                 className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
@@ -60,6 +66,20 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                                 Профиль
                             </button>
                         </li>
+
+                        {modules.orders && <li>
+                            <button onClick={() => onTabChange('orders')}
+                                className={`w-full text-left px-4 py-3 rounded-lg transition-all ${activeTab === 'orders' ? 'bg-white bg-opacity-20 text-white shadow-md' : 'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10'}`}>
+                                Заказы
+                            </button>
+                        </li>}
+
+                        {modules.reservations && selectedRole && ['PORTAL_ROLE_OWNER', 'PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_HOSTESS', 'PORTAL_ROLE_WAITER'].includes(selectedRole.role) && <li>
+                            <button onClick={() => onTabChange('reservations')}
+                                className={`w-full text-left px-4 py-3 rounded-lg transition-all ${activeTab === 'reservations' ? 'bg-white bg-opacity-20 text-white shadow-md' : 'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10'}`}>
+                                Бронирования
+                            </button>
+                        </li>}
 
                         {shouldShowCompaniesTab && (
                             <li>
@@ -76,7 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                             </li>
                         )}
 
-                        {shouldShowImagesTab && (
+                        {modules.images && shouldShowImagesTab && (
                             <li>
                                 <button
                                     onClick={handleImagesClick}
@@ -90,6 +110,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
                                 </button>
                             </li>
                         )}
+                        {shouldShowImagesTab && <li><button onClick={()=>onTabChange('screens')}
+                            className={`w-full text-left px-4 py-3 rounded-lg transition-all ${activeTab==='screens'?'bg-white bg-opacity-20 text-white shadow-md':'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10'}`}>Меню</button></li>}
+                        {roles?.some(r=>r.role==='PORTAL_ROLE_SUPER_ADMIN')&&<li><button
+                            aria-current={activeTab==='statistics'?'page':undefined}
+                            className={`w-full text-left px-4 py-3 rounded-lg transition-all ${activeTab==='statistics'?'bg-white bg-opacity-20 text-white shadow-md':'text-white text-opacity-80 hover:bg-white hover:bg-opacity-10 hover:text-opacity-100'}`}
+                            onClick={()=>{onTabChange('statistics');navigate('/profile/statistics');}}>Статистика заведений</button></li>}
                     </ul>
                 </nav>
             </div>

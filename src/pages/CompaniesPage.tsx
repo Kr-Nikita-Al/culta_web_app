@@ -1,38 +1,47 @@
 import React, {useState, useEffect, useCallback} from 'react';
+import {useCompanyEditLease,companyLeaseError} from '../hooks/useCompanyEditLease';
+import AccountStatusAdmin from '../components/AccountStatusAdmin';
 import { useAuth } from '../context/AuthContext';
-import { useApi } from '../hooks/useApi';
+import {useScopedOperation} from '../hooks/useScopedOperation';
 import { getCompanyById, updateCompany } from '../services/companyService';
 import { Company } from '../types/authTypes';
 import { useSelectedCompany } from '../context/SelectedCompanyContext';
 import { useCompanies } from '../context/CompaniesContext';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { grantStaffPrivilege, revokeStaffPrivilege, ROLE_TYPES, ROLE_DISPLAY_NAMES } from '../services/roleService';
+import { grantStaffPrivilege, revokeStaffPrivilege, ROLE_DISPLAY_NAMES } from '../services/roleService';
 import { motion } from 'framer-motion';
 import CreateCompanyForm from '../components/CreateCompanyForm';
 import { useNotifications } from '../context/NotificationContext';
+import StoragePhoto from '../components/StoragePhoto';
+import CompanyInfrastructure from '../components/CompanyInfrastructure';
+import StaffCandidatePicker from '../components/StaffCandidatePicker';
+import StaffRolesTable from '../components/StaffRolesTable';
 
-type StaffRole = 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK';
+type StaffRole = 'PORTAL_ROLE_OWNER' | 'PORTAL_ROLE_ADMIN' | 'PORTAL_ROLE_MODERATOR' | 'PORTAL_ROLE_WAITER' | 'PORTAL_ROLE_COOK' | 'PORTAL_ROLE_HOSTESS';
 
 
 const CompaniesPage: React.FC = () => {
+    const [companyTab, setCompanyTab] = useState<'info'|'access'|'infrastructure'>('info');
+    const [adminTab, setAdminTab] = useState<'create'|'access'|'accounts'>('create');
     const [companyData, setCompanyData] = useState<Company | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editedCompany, setEditedCompany] = useState<Partial<Company>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState<string | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    const [showSuccess, setShowSuccess] = useState(false);
     const [delegateAction, setDelegateAction] = useState<'grant' | 'revoke'>('grant');
-    const [selectedRoleForDelegate, setSelectedRoleForDelegate] = useState<keyof typeof ROLE_TYPES>('PORTAL_ROLE_ADMIN');
     const [delegateUserId, setDelegateUserId] = useState('');
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error' | 'info'>('idle');
+    const [candidateReset, setCandidateReset] = useState(0);
     const [superAdminSelectedCompany, setSuperAdminSelectedCompany] = useState<string>('');
     const { addNotification } = useNotifications();
     const { selectedCompany: contextSelectedCompany, selectedRole } = useSelectedCompany();
-    const { companies, refreshCompanies } = useCompanies();
+    const editOperation=useScopedOperation(JSON.stringify([contextSelectedCompany,selectedRole?.role]));
+    const lease=useCompanyEditLease(contextSelectedCompany || '');
+    const releaseLease=lease.release;
+    useEffect(()=>{setIsEditing(false);void releaseLease();},[contextSelectedCompany,selectedRole?.role,releaseLease]);
+    const { companies, refreshCompanies, isLoading: companiesLoading } = useCompanies();
     const { token } = useAuth();
-    const { callApi } = useApi();
+    const saveOperation=useScopedOperation(JSON.stringify([contextSelectedCompany,selectedRole?.role]));
     const { updateSelectedCompany } = useSelectedCompany();
     const [companyCache, setCompanyCache] = useState<Record<string, Company>>({});
     const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
@@ -45,12 +54,19 @@ const CompaniesPage: React.FC = () => {
         if (selectedRole?.role === 'PORTAL_ROLE_OWNER') return 'PORTAL_ROLE_ADMIN';
         return 'PORTAL_ROLE_ADMIN';
     });
+    const accessCompanyId = (isSuperAdmin ? superAdminSelectedCompany : contextSelectedCompany) || '';
+    useEffect(() => {setDelegateUserId('');}, [accessCompanyId, delegateRole, delegateAction]);
+    const accessOperation=useScopedOperation(JSON.stringify([accessCompanyId,delegateRole,delegateAction,delegateUserId]));
     // Регулярные выражения для валидации
     const phoneRegex = /^(\+7|8)[0-9]{10}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     // Загрузка данных компании при изменении выбранной компании
     useEffect(() => {
+        let active=true;
+        setError(null);
+        setCompanyData(null);
+        setEditedCompany({});
         if (isSuperAdmin) {
             setLoading(false);
             return;
@@ -68,7 +84,8 @@ const CompaniesPage: React.FC = () => {
             const loadCompanyData = async () => {
                 setLoading(true);
                 try {
-                    const data = await callApi(() => getCompanyById(contextSelectedCompany));
+                    const data = await getCompanyById(contextSelectedCompany);
+                    if(!active)return;
                     if (data) {
                         setCompanyData(data);
                         setEditedCompany(data);
@@ -79,19 +96,29 @@ const CompaniesPage: React.FC = () => {
                         }));
                     }
                 } catch (err) {
+                    if(!active)return;
                     setError('Ошибка загрузки данных компании');
                 } finally {
-                    setLoading(false);
+                    if(active)setLoading(false);
                 }
             };
 
             loadCompanyData();
-        }
-    }, [contextSelectedCompany, token, callApi, isSuperAdmin, companyCache]);
+        } else setLoading(false);
+        return()=>{active=false;};
+    }, [contextSelectedCompany, token, isSuperAdmin, companyCache]);
 
     // Валидация полей
     const validateField = (name: string, value: string): string => {
         switch (name) {
+            case 'company_name':
+                return !value.trim() ? 'Укажите название компании' : Array.from(value).length > 20 ? 'Название компании — не более 20 символов' : '';
+            case 'address':
+                return !value.trim() ? 'Укажите адрес компании' : Array.from(value).length > 50 ? 'Адрес — не более 50 символов' : '';
+            case 'bonus_payment_perc':
+            case 'bonus_accrual_perc':
+                return /^\d{1,3}(\.\d{1,2})?$/.test(value) && Number(value) <= 100
+                    ? '' : 'Укажите процент от 0 до 100, не более двух знаков после точки';
             case 'phone':
                 if (!value.trim()) return 'Телефон обязателен для заполнения';
                 return phoneRegex.test(value.replace(/\s/g, '')) ? '' : 'Неверный формат телефона';
@@ -106,7 +133,15 @@ const CompaniesPage: React.FC = () => {
     // Проверка всей формы
     const validateForm = (): boolean => {
         const newErrors: Record<string, string> = {};
+        for (const field of ['bonus_payment_perc', 'bonus_accrual_perc'] as const) {
+            const error = validateField(field, editedCompany[field] ?? '0');
+            if (error) newErrors[field] = error;
+        }
 
+        for (const field of ['company_name', 'address'] as const) {
+            const message=validateField(field, editedCompany[field] || '');
+            if(message)newErrors[field]=message;
+        }
         // Проверяем телефон
         if (editedCompany.phone) {
             const phoneError = validateField('phone', editedCompany.phone);
@@ -133,18 +168,22 @@ const CompaniesPage: React.FC = () => {
         }));
 
         // Валидация при изменении
-        if (name === 'phone' || name === 'email') {
+        if (name === 'company_name' || name === 'address' || name === 'phone' || name === 'email' || name.startsWith('bonus_')) {
             const error = validateField(name, value);
-            setFieldErrors(prev => ({ ...prev, [name]: error }));
+            setFieldErrors(prev => {
+                const next = { ...prev };
+                if (error) next[name] = error; else delete next[name];
+                return next;
+            });
         }
     };
 
     const resetEditingState = () => {
+        void lease.release();
         setIsEditing(false);
         // Восстанавливаем оригинальные данные из companyData
         setEditedCompany(companyData || {});
         setFieldErrors({});
-        setSaveStatus('idle');
     };
 
     const hasChanges = useCallback(() => {
@@ -156,8 +195,24 @@ const CompaniesPage: React.FC = () => {
         });
     }, [companyData, editedCompany]);
 
+    const beginEdit=async()=>{
+        const operation=editOperation.begin();
+        if(!operation)return;
+        try{
+            const acquired=await lease.acquire();
+            if(!acquired||!operation.isCurrent())return;
+            const fresh=await getCompanyById(contextSelectedCompany!);
+            if(!operation.isCurrent())return;
+            setCompanyData(fresh);setEditedCompany(fresh);setFieldErrors({});setIsEditing(true);
+        }catch{
+            if(!operation.isCurrent())return;
+            await lease.release();
+            if(operation.isCurrent())addNotification('Не удалось загрузить актуальные данные компании','error');
+        }finally{operation.finish();}
+    };
+
     const handleSave = async () => {
-        if (!contextSelectedCompany || !token || !validateForm()) return;
+        if (!contextSelectedCompany || !token || !lease.token || !validateForm()) return;
 
         // Проверяем, есть ли изменения
         if (!hasChanges()) {
@@ -166,53 +221,26 @@ const CompaniesPage: React.FC = () => {
             return;
         }
 
+        const operation=saveOperation.begin();
+        if(!operation)return;
         setLoading(true);
 
         try {
-            // Оптимистично обновляем UI
-            if (companyData) {
-                const updatedCompanyData = {
-                    ...companyData,
-                    ...editedCompany
-                };
-
-                setCompanyData(updatedCompanyData);
-                setCompanyCache(prev => ({
-                    ...prev,
-                    [contextSelectedCompany]: updatedCompanyData
-                }));
-                updateSelectedCompany(updatedCompanyData);
-            }
-
-            // Сразу выходим из режима редактирования
+            await updateCompany(contextSelectedCompany,{...editedCompany,bonus_payment_perc:undefined,bonus_accrual_perc:undefined},lease.token);
+            if(!operation.isCurrent())return;
+            const updated={...companyData,...editedCompany} as Company;
+            setCompanyData(updated);
+            setCompanyCache(prev=>({...prev,[contextSelectedCompany]:updated}));
+            updateSelectedCompany(updated);
             setIsEditing(false);
-
-            // Отправляем запрос в фоне без ожидания
-            updateCompany(contextSelectedCompany, editedCompany)
-                .then(() => {
-                    addNotification('Изменения компании сохранены успешно', 'success');
-                })
-                .catch((error) => {
-                    console.error('Ошибка сохранения:', error);
-                    addNotification('Ошибка при сохранении изменений', 'error');
-
-                    // Откатываем изменения в случае ошибки
-                    if (companyData) {
-                        setCompanyData(companyData);
-                        setCompanyCache(prev => ({
-                            ...prev,
-                            [contextSelectedCompany]: companyData
-                        }));
-                        updateSelectedCompany(companyData);
-                    }
-                });
-
-        } catch (err: any) {
-            console.error('Ошибка:', err);
-            addNotification('Произошла ошибка', 'error');
-        } finally {
-            setLoading(false);
-        }
+            await lease.release();
+            if(!operation.isCurrent())return;
+            addNotification('Изменения компании сохранены успешно','success');
+        } catch(e:any) {
+            if(!operation.isCurrent())return;
+            addNotification(e.response?.status===423?companyLeaseError(e):'Ошибка сохранения. Ваши правки остаются в форме.','error');
+            if(e.response?.status===423)await lease.release();
+        } finally {if(operation.isCurrent())setLoading(false);operation.finish();}
     };
 
     const getAvailableRoles = () => {
@@ -221,12 +249,12 @@ const CompaniesPage: React.FC = () => {
         } else if (selectedRole?.role === 'PORTAL_ROLE_ADMIN') {
             // Админ может только выдавать права, но не отзывать админские
             if (delegateAction === 'revoke') {
-                return ['PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+                return ['PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK', 'PORTAL_ROLE_HOSTESS'] as StaffRole[];
             } else {
-                return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+                return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK', 'PORTAL_ROLE_HOSTESS'] as StaffRole[];
             }
         } else if (selectedRole?.role === 'PORTAL_ROLE_OWNER') {
-            return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK'] as StaffRole[];
+            return ['PORTAL_ROLE_ADMIN', 'PORTAL_ROLE_MODERATOR', 'PORTAL_ROLE_WAITER', 'PORTAL_ROLE_COOK', 'PORTAL_ROLE_HOSTESS'] as StaffRole[];
         }
         return [] as StaffRole[];
     };
@@ -248,7 +276,7 @@ const CompaniesPage: React.FC = () => {
         return false;
     };
 
-    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             // Ctrl+Enter или Cmd+Enter - сохранить
             e.preventDefault();
@@ -262,7 +290,7 @@ const CompaniesPage: React.FC = () => {
             e.preventDefault();
             resetEditingState();
         }
-    }, [handleSave, resetEditingState]);
+    };
 
     const handleDelegateRights = async () => {
         const targetCompanyId = isSuperAdmin ? superAdminSelectedCompany : contextSelectedCompany;
@@ -280,36 +308,40 @@ const CompaniesPage: React.FC = () => {
             return;
         }
 
+        const operation=accessOperation.begin();
+        if(!operation)return;
         setError(null);
 
         try {
             let response;
             if (delegateAction === 'grant') {
-                response = await callApi(() => grantStaffPrivilege(token!, {
+                response = await grantStaffPrivilege(token!, {
                     promo_user_id: delegateUserId,
                     company_id: targetCompanyId,
                     role: delegateRole
-                }));
+                });
             } else {
-                response = await callApi(() => revokeStaffPrivilege(token!, {
+                response = await revokeStaffPrivilege(token!, {
                     demo_user_id: delegateUserId,
                     company_id: targetCompanyId,
                     role: delegateRole
-                }));
+                });
             }
 
+            if(!operation.isCurrent())return;
             if (response) {
                 const actionText = delegateAction === 'grant' ? 'выданы' : 'отозваны';
                 addNotification(`Права ${ROLE_DISPLAY_NAMES[delegateRole]} успешно ${actionText}`, 'success');
                 setDelegateUserId('');
+                setCandidateReset(v => v + 1);
             }
         } catch (error: any) {
-            console.error('Ошибка делегирования прав:', error);
+            if(!operation.isCurrent())return;
 
             let errorMessage = 'Ошибка при делегировании прав';
 
             if (error.response?.status === 400) {
-                errorMessage = error.response?.data?.detail || 'Некорректный запрос';
+                errorMessage = typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Некорректный запрос';
             } else if (error.response?.status === 403) {
                 errorMessage = 'Недостаточно прав для выполнения действия';
             } else if (error.response?.status === 404) {
@@ -322,7 +354,7 @@ const CompaniesPage: React.FC = () => {
 
             setError(errorMessage);
             addNotification(errorMessage, 'error');
-        }
+        } finally {operation.finish();}
     };
 
     if (loading) {
@@ -334,15 +366,20 @@ const CompaniesPage: React.FC = () => {
     }
 
     return (
-        <div className="max-w-6xl mx-auto p-6">
-            <motion.h1
-                initial={{opacity: 0, y: -10}}
-                animate={{opacity: 1, y: 0}}
-                transition={{duration: 0.4}}
-                className="text-3xl font-bold text-coffee-dark mb-8"
-            >
-                {isSuperAdmin ? 'Управление доступом' : 'Информация о компании'}
-            </motion.h1>
+        <div className="workspace-page workspace-card company-page--tabbed">
+            <h1 className="section-title">{isSuperAdmin?'Компании':'Информация о компании'}</h1>
+            {isSuperAdmin && <div className="company-tabs" role="tablist" aria-label="Разделы управления компаниями">
+                {([['create','Создание компании'],['access','Управление доступом'],['accounts','Статусы аккаунтов']] as const).map(([id,label])=>
+                    <button key={id} type="button" role="tab" id={`admin-company-tab-${id}`} aria-controls={`admin-company-panel-${id}`} aria-selected={adminTab===id} onClick={()=>setAdminTab(id)}>{label}</button>)}
+            </div>}
+            {isSuperAdmin && <div role="tabpanel" id="admin-company-panel-accounts" aria-labelledby="admin-company-tab-accounts" hidden={adminTab!=='accounts'}><AccountStatusAdmin/></div>}
+            {!isSuperAdmin && <div className="company-tabs" role="tablist" aria-label="Разделы компании">
+                {([['info','Основная информация'],['access','Управление доступом'],['infrastructure','Инфраструктура']] as const).map(([id,label])=>
+                    <button key={id} type="button" role="tab" aria-selected={companyTab===id} disabled={isEditing}
+                        onClick={()=>{if(isEditing){if(!window.confirm('Закрыть редактирование без сохранения?'))return;resetEditingState();}setCompanyTab(id);}}>{label}</button>)}
+            </div>}
+            {!isSuperAdmin && contextSelectedCompany && <div hidden={companyTab!=='infrastructure'} className="company-infrastructure-panel">
+                <CompanyInfrastructure key={contextSelectedCompany} companyId={contextSelectedCompany}/></div>}
 
             {error && (
                 <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
@@ -350,75 +387,63 @@ const CompaniesPage: React.FC = () => {
                 </div>
             )}
 
-            {success && (
-                <div className="mb-4 p-3 bg-green-100 text-green-700 rounded">
-                    {success}
-                </div>
-            )}
 
             {/* Информация о компании (только для не-суперадминов) */}
             {isSuperAdmin ? (
                 <motion.div
-                    initial={{opacity: 0, y: 10, scale: 0.98}}
+                    hidden={adminTab!=='create'} role="tabpanel" id="admin-company-panel-create" aria-labelledby="admin-company-tab-create"
+                    initial={false}
                     animate={{opacity: 1, y: 0, scale: 1}}
                     transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
                 >
                     <CreateCompanyForm/>
                 </motion.div>
-            ) : companyData && (
+            ) : companyData && companyTab==='info' && (
                 <motion.div
-                    initial={{opacity: 0, y: 10, scale: 0.98}}
+                    initial={false}
                     animate={{opacity: 1, y: 0, scale: 1}}
                     transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
-                    className="bg-white rounded-xl shadow-lg p-6 mb-6"
+                    className="workspace-card bg-white mb-6 company-info-panel"
                 >
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-semibold text-amber-800">Информация о компании</h2>
+                    {lease.error&&<p role="alert">{lease.error}{isEditing&&!lease.token&&<button type="button" className="menu-secondary" onClick={()=>{if(window.confirm('Загрузить актуальные данные? Несохранённые правки будут потеряны.'))void beginEdit();}}>Открыть редактирование заново</button>}</p>}
+                    <div className="company-info-tools flex justify-end items-center">
                         <div className="flex items-center space-x-4">
                             {!isEditing ? (
                                 <motion.button
                                     whileHover={{scale: 1.05}}
                                     whileTap={{scale: 0.95}}
-                                    onClick={() => setIsEditing(true)}
-                                    className="bg-amber-700 hover:bg-amber-800 text-white py-2 px-4 rounded flex items-center space-x-2"
+                                    onClick={beginEdit} disabled={lease.pending || editOperation.busy || loading}
+                                    className="company-edit-button" aria-label="Редактировать компанию" title="Редактировать компанию"
                                 >
-                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                     </svg>
-                                    <span>Редактировать</span>
                                 </motion.button>
                             ) : (
                                 <div className="flex items-center space-x-2">
                                     <button
                                         onClick={resetEditingState}
-                                        className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center space-x-2"
+                                        className="company-edit-button" aria-label="Отмена" title="Отмена"
                                         disabled={loading}
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
                                         </svg>
-                                        <span>Отмена</span>
                                     </button>
                                     <button
                                         onClick={handleSave}
-                                        disabled={Object.keys(fieldErrors).length > 0 || loading || !hasChanges()}
-                                        className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                                            Object.keys(fieldErrors).length > 0 || loading || !hasChanges()
-                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                                : 'bg-green-600 text-white hover:bg-green-700'
-                                        }`}
+                                        disabled={Object.keys(fieldErrors).length > 0 || loading || !lease.token || !hasChanges()}
+                                        className="company-edit-button" aria-label={loading?'Сохранение…':'Сохранить'} title="Сохранить"
                                     >
                                         {loading ? (
                                             <>
                                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                <span>Сохранение...</span>
                                             </>
                                         ) : (
                                             <>
-                                                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
                                                 </svg>
-                                                <span>Сохранить</span>
                                             </>
                                         )}
                                     </button>
@@ -427,23 +452,51 @@ const CompaniesPage: React.FC = () => {
                         </div>
                     </div>
 
+                    <div className="company-details-layout"><StoragePhoto key={companyData.company_id} companyId={companyData.company_id} title="Фото компании" leaseToken={lease.token}
+                        editable={['PORTAL_ROLE_ADMIN','PORTAL_ROLE_OWNER'].includes(selectedRole?.role || '')} />
                     <form onKeyDown={handleKeyDown} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <fieldset className="md:col-span-2">
+                            <legend className="text-gray-600 text-sm mb-2">Клиентские заказы</legend>
+                            <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                {([
+                                    ['allow_client_orders_inside', 'Внутри заведения'],
+                                    ['allow_client_orders_outside', 'Вне заведения'],
+                                ] as const).map(([field, label]) => <label key={field} className="flex items-center gap-2">
+                                    <input type="checkbox" name={field} disabled={!isEditing}
+                                        checked={Boolean((isEditing ? editedCompany : companyData)[field])}
+                                        onChange={handleInputChange} className="accent-amber-700" />
+                                    {label}
+                                </label>)}
+                            </div>
+                        </fieldset>
+                        <div>
+                            <label className="block text-gray-600 text-sm mb-1" htmlFor="service-type">Тип обслуживания</label>
+                            {isEditing ? <select id="service-type" className="w-full p-2 border border-gray-300 rounded"
+                                value={editedCompany.service_type || 'self_service'}
+                                onChange={event => setEditedCompany(prev => ({ ...prev,
+                                    service_type: event.target.value as 'self_service' | 'waiter_service' }))}>
+                                <option value="self_service">Самообслуживание — один заказ в чеке</option>
+                                <option value="waiter_service">Официант — несколько заказов в чеке</option>
+                            </select> : <p>{companyData.service_type === 'waiter_service' ? 'Обслуживание официантом' : 'Самообслуживание'}</p>}
+                            <p className="text-sm text-gray-500">Изменение применяется к новым чекам. Существующие чеки сохраняют свой тип.</p>
+                        </div>
                         {/* Название компании */}
                         <div>
-                            <label className="block text-gray-600 text-sm mb-1">Название компании</label>
+                            <label htmlFor="company-company_name" className="block text-gray-600 text-sm mb-1">Название компании</label>
+                            {isEditing && fieldErrors.company_name && <p role="alert" className="text-red-600 text-sm">{fieldErrors.company_name}</p>}
                             {isEditing ? (
                                 <motion.input
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={false}
                                     animate={{ opacity: 1, scale: 1 }}
                                     type="text"
-                                    name="company_name"
+                                    id="company-company_name" name="company_name"
                                     value={editedCompany.company_name || ''}
                                     onChange={handleInputChange}
                                     className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-amber-500"
                                 />
                             ) : (
                                 <motion.p
-                                    initial={{ opacity: 0 }}
+                                    initial={false}
                                     animate={{ opacity: 1 }}
                                     className="font-medium"
                                 >
@@ -454,20 +507,21 @@ const CompaniesPage: React.FC = () => {
 
                         {/* Адрес */}
                         <div>
-                            <label className="block text-gray-600 text-sm mb-1">Адрес</label>
+                            <label htmlFor="company-address" className="block text-gray-600 text-sm mb-1">Адрес</label>
+                            {isEditing && fieldErrors.address && <p role="alert" className="text-red-600 text-sm">{fieldErrors.address}</p>}
                             {isEditing ? (
                                 <motion.input
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={false}
                                     animate={{ opacity: 1, scale: 1 }}
                                     type="text"
-                                    name="address"
+                                    id="company-address" name="address"
                                     value={editedCompany.address || ''}
                                     onChange={handleInputChange}
                                     className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-amber-500"
                                 />
                             ) : (
                                 <motion.p
-                                    initial={{ opacity: 0 }}
+                                    initial={false}
                                     animate={{ opacity: 1 }}
                                     className="font-medium"
                                 >
@@ -481,7 +535,7 @@ const CompaniesPage: React.FC = () => {
                             <label className="block text-gray-600 text-sm mb-1">Телефон</label>
                             {isEditing ? (
                                 <motion.div
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={false}
                                     animate={{ opacity: 1, scale: 1 }}
                                 >
                                     <input
@@ -496,7 +550,7 @@ const CompaniesPage: React.FC = () => {
                                     />
                                     {fieldErrors.phone && (
                                         <motion.p
-                                            initial={{ opacity: 0, y: -10 }}
+                                            initial={false}
                                             animate={{ opacity: 1, y: 0 }}
                                             className="text-red-500 text-sm mt-1"
                                         >
@@ -506,7 +560,7 @@ const CompaniesPage: React.FC = () => {
                                 </motion.div>
                             ) : (
                                 <motion.p
-                                    initial={{ opacity: 0 }}
+                                    initial={false}
                                     animate={{ opacity: 1 }}
                                     className="font-medium"
                                 >
@@ -520,7 +574,7 @@ const CompaniesPage: React.FC = () => {
                             <label className="block text-gray-600 text-sm mb-1">Email</label>
                             {isEditing ? (
                                 <motion.div
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={false}
                                     animate={{ opacity: 1, scale: 1 }}
                                 >
                                     <input
@@ -534,7 +588,7 @@ const CompaniesPage: React.FC = () => {
                                     />
                                     {fieldErrors.email && (
                                         <motion.p
-                                            initial={{ opacity: 0, y: -10 }}
+                                            initial={false}
                                             animate={{ opacity: 1, y: 0 }}
                                             className="text-red-500 text-sm mt-1"
                                         >
@@ -544,7 +598,7 @@ const CompaniesPage: React.FC = () => {
                                 </motion.div>
                             ) : (
                                 <motion.p
-                                    initial={{ opacity: 0 }}
+                                    initial={false}
                                     animate={{ opacity: 1 }}
                                     className="font-medium"
                                 >
@@ -558,7 +612,7 @@ const CompaniesPage: React.FC = () => {
                             <label className="block text-gray-600 text-sm mb-1">Возрастное ограничение</label>
                             {isEditing ? (
                                 <motion.label
-                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    initial={false}
                                     animate={{ opacity: 1, scale: 1 }}
                                     className="flex items-center"
                                 >
@@ -573,7 +627,7 @@ const CompaniesPage: React.FC = () => {
                                 </motion.label>
                             ) : (
                                 <motion.p
-                                    initial={{ opacity: 0 }}
+                                    initial={false}
                                     animate={{ opacity: 1 }}
                                     className="font-medium"
                                 >
@@ -581,12 +635,12 @@ const CompaniesPage: React.FC = () => {
                                 </motion.p>
                             )}
                         </div>
-                    </form>
+                    </form></div>
 
                     {/* Подсказка по горячим клавишам */}
                     {isEditing && (
                         <motion.div
-                            initial={{ opacity: 0 }}
+                            initial={false}
                             animate={{ opacity: 1 }}
                             className="mt-4 text-xs text-gray-500 flex items-center space-x-4"
                         >
@@ -599,14 +653,15 @@ const CompaniesPage: React.FC = () => {
             )}
 
             {/* Блок управления доступами для администраторов и суперадминов */}
-            {(isSuperAdmin || selectedRole?.role === 'PORTAL_ROLE_ADMIN' || selectedRole?.role === 'PORTAL_ROLE_OWNER') && (
+            {(isSuperAdmin ? adminTab==='access' : companyTab==='access') && (isSuperAdmin || selectedRole?.role === 'PORTAL_ROLE_ADMIN' || selectedRole?.role === 'PORTAL_ROLE_OWNER') && (
                 <motion.div
-                    initial={{opacity: 0, y: 10, scale: 0.98}}
+                    role={isSuperAdmin?'tabpanel':undefined} id={isSuperAdmin?'admin-company-panel-access':undefined} aria-labelledby={isSuperAdmin?'admin-company-tab-access':undefined}
+                    initial={false}
                     animate={{opacity: 1, y: 0, scale: 1}}
                     transition={{duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94]}}
-                    className="bg-white rounded-xl shadow-lg p-6"
+                    className="workspace-card bg-white"
                 >
-                    <h2 className="text-xl font-semibold text-amber-800 mb-4">Управление доступом</h2>
+                    <h2 className="section-title">Управление доступом</h2>
                     {/* Блок выбора компании только для суперадмина */}
                     {isSuperAdmin && (
                         <div className="mb-4">
@@ -629,6 +684,7 @@ const CompaniesPage: React.FC = () => {
                                     }}
                                     onFocus={() => {
                                         setShowCompanyDropdown(true);
+                                        void refreshCompanies();
                                     }}
                                     onBlur={() => {
                                         setTimeout(() => setShowCompanyDropdown(false), 200);
@@ -654,6 +710,7 @@ const CompaniesPage: React.FC = () => {
                                     </button>
                                 )}
 
+                                {showCompanyDropdown && companiesLoading && <p role="status" className="text-sm text-gray-500">Обновление компаний…</p>}
                                 {/* Выпадающий список */}
                                 {showCompanyDropdown && companies.length > 0 && (
                                     <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
@@ -682,7 +739,7 @@ const CompaniesPage: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="company-access-fields">
                         <div>
                             <label className="block text-gray-600 mb-2">Действие:</label>
                             <select
@@ -716,33 +773,25 @@ const CompaniesPage: React.FC = () => {
                             </select>
                         </div>
 
-                        <div className="md:col-span-2">
-                            <label className="block text-gray-600 mb-2">ID пользователя:</label>
-                            <input
-                                type="text"
-                                value={delegateUserId}
-                                onChange={(e) => setDelegateUserId(e.target.value)}
-                                placeholder="Введите ID пользователя"
-                                className="w-full p-2 border border-gray-300 rounded"
-                            />
-                        </div>
+                        <StaffCandidatePicker key={`${accessCompanyId}:${delegateRole}:${delegateAction}:${candidateReset}`}
+                            companyId={accessCompanyId} role={delegateRole} action={delegateAction}
+                            value={delegateUserId} onChange={setDelegateUserId}/>
 
-                        <div className="md:col-span-2">
+                        <div className="company-access-submit">
                             <button
                                 onClick={handleDelegateRights}
-                                disabled={!superAdminSelectedCompany || !delegateUserId || loading}
-                                className={`px-4 py-2 rounded-lg transition-colors ${
-                                    !superAdminSelectedCompany || !delegateUserId || loading
-                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                        : 'bg-amber-600 text-white hover:bg-amber-700'
-                                }`}
+                                disabled={!accessCompanyId || !delegateUserId || loading || accessOperation.busy}
+                                className="company-access-action"
                             >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7z"/><path d={delegateAction==='grant'?'m8 12 3 3 5-6':'M8 12h8'}/></svg>
                                 {delegateAction === 'grant' ? 'Выдать права' : 'Забрать права'}
                             </button>
                         </div>
                     </div>
                 </motion.div>
             )}
+            {(isSuperAdmin ? adminTab==='access' : companyTab==='access') && accessCompanyId && (isSuperAdmin || selectedRole?.role==='PORTAL_ROLE_OWNER' || selectedRole?.role==='PORTAL_ROLE_ADMIN') &&
+                <StaffRolesTable key={accessCompanyId} companyId={accessCompanyId} revision={candidateReset}/>}
         </div>
     );
 };
